@@ -248,14 +248,18 @@ bool ChipConfigurator::enterDownloadState() {
     // A core register window is only writable if it was decoded into the SI
     // address space; reject implausible decodes to avoid faults. See
     // findCoreAddresses() TODO (the 43A0 EROM addressing differs from msgbuf).
+    // NOTE: armCore->base is a backplane physical address, NOT a kernel virtual
+    // address. Direct pointer dereference here causes a page fault. The halt
+    // write is intentionally skipped pending proper BAR0 backplane window
+    // mapping; the [S+0x5028] poll in awaitFirmwareReady() is the real arbiter.
     if (armCore->base < 0x10000000 || armCore->base >= 0x80000000) {
         IOLog("%s: WARNING: implausible R4 base 0x%x; skipping halt\n",
               LOG_PREFIX, armCore->base);
         return true;
     }
-    volatile UInt32 *reset = (volatile UInt32 *)((uintptr_t)armCore->base + 0x408);
-    *reset = 0x20; // wrapper SRESET, bit5 (mirrors wlc_bmac_si_corereset mode)
-    (void)*reset;
+    IOLog("%s: skipping R4 halt write (base 0x%x is a backplane physical "
+          "address, not kernel VA; pending BAR0 mapping RE)\n",
+          LOG_PREFIX, armCore->base);
     // Step 6: the 0xaa52/0xa9c6 (43602/4350) halt additionally pokes the R4
     // core windows +0x40/+0x44. The exact values are not in the RE yet, so this
     // is logged only (blind writes could wedge the backplane).
@@ -274,11 +278,14 @@ bool ChipConfigurator::exitDownloadState(UInt32 vectors) {
     IOLog("%s: exitDownloadState vectors 0x%x\n", LOG_PREFIX, vectors);
     const CoreDescriptor *armCore = findCoreById(0x83e);
     if (armCore && armCore->base >= 0x10000000 && armCore->base < 0x80000000) {
-        volatile UInt32 *reset = (volatile UInt32 *)((uintptr_t)armCore->base + 0x408);
-        UInt32 v = *reset;
-        v |= 0x20;
-        *reset = v;
-        (void)*reset;
+        // NOTE: armCore->base is a backplane physical address, NOT a kernel VA.
+        // Direct pointer dereference here causes a page fault. The release
+        // write is intentionally skipped pending proper BAR0 backplane window
+        // mapping; the [S+0x5028] poll in awaitFirmwareReady() is the real
+        // arbiter of firmware readiness.
+        IOLog("%s: skipping R4 release write (base 0x%x is a backplane physical "
+              "address, not kernel VA; pending BAR0 mapping RE)\n",
+              LOG_PREFIX, armCore->base);
     } else if (armCore) {
         IOLog("%s: WARNING: implausible R4 base 0x%x; release skipped\n",
               LOG_PREFIX, armCore->base);
@@ -556,9 +563,19 @@ UInt32 ChipConfigurator::readD11Reg(UInt32 offset) {
         return 0;
     }
     volatile UInt8 *va = (volatile UInt8 *)mMap->getVirtualAddress();
+    if (!va) {
+        return 0;
+    }
     // Assume BAR0 offset 0 == backplane 0x18000000.
     UInt32 d11Offset = mD11CoreBase - 0x18000000u;
-    return OSReadLittleInt32((void *)va, d11Offset + offset);
+    UInt32 absOffset = d11Offset + offset;
+    // Bounds check: never read past the end of the mapped BAR0 window.
+    if (absOffset + 4 > (UInt32)mMap->getLength()) {
+        IOLog("%s: readD11Reg: offset 0x%x beyond BAR0 length 0x%llx; returning 0\n",
+              LOG_PREFIX, absOffset, (unsigned long long)mMap->getLength());
+        return 0;
+    }
+    return OSReadLittleInt32((void *)va, absOffset);
 }
 
 void ChipConfigurator::writeD11Reg(UInt32 offset, UInt32 value) {
@@ -566,7 +583,19 @@ void ChipConfigurator::writeD11Reg(UInt32 offset, UInt32 value) {
         return;
     }
     volatile UInt8 *va = (volatile UInt8 *)mMap->getVirtualAddress();
+    if (!va) {
+        return;
+    }
     UInt32 d11Offset = mD11CoreBase - 0x18000000u;
+    UInt32 absOffset = d11Offset + offset;
+    // Bounds check: never write past the end of the mapped BAR0 window.
+    if (absOffset + 4 > (UInt32)mMap->getLength()) {
+        IOLog("%s: writeD11Reg: offset 0x%x beyond BAR0 length 0x%llx; skipping\n",
+              LOG_PREFIX, absOffset, (unsigned long long)mMap->getLength());
+        return;
+    }
+    OSWriteLittleInt32((void *)va, absOffset, value);
+}
     OSWriteLittleInt32((void *)va, d11Offset + offset, value);
 }
 
