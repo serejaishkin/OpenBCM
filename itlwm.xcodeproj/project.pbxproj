@@ -21,6 +21,18 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		BC0000000000000000000101 /* BcmChip.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000001 /* BcmChip.hpp */; };
+		BC0000000000000000000102 /* ChipConfigurator.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000004 /* ChipConfigurator.hpp */; };
+		BC0000000000000000000103 /* Dlimage.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000005 /* Dlimage.hpp */; };
+		BC0000000000000000000104 /* EmbeddedFirmware.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000008 /* EmbeddedFirmware.hpp */; };
+		BC0000000000000000000105 /* ItlBcm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000B /* ItlBcm.hpp */; };
+		BC0000000000000000000106 /* OlMsg.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000C /* OlMsg.hpp */; };
+		BC0000000000000000000107 /* SharedInfo.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000D /* SharedInfo.hpp */; };
+		BC0000000000000000000108 /* Transport.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000010 /* Transport.hpp */; };
+		BC0000000000000000000003 /* ChipConfigurator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000002 /* ChipConfigurator.cpp */; };
+		BC0000000000000000000007 /* DlimageArrays.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000006 /* DlimageArrays.cpp */; };
+		BC000000000000000000000A /* ItlBcm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000009 /* ItlBcm.cpp */; };
+		BC000000000000000000000F /* Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000E /* Transport.cpp */; };
 		A112F5371BD949CD8CA19D88 /* WCL.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A112F5371BD949CD8CA19D89 /* WCL.cpp */; };
 		024A07B023FCBC3C009FBA6C /* itlwm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 024A07AF23FCBC3C009FBA6C /* itlwm.hpp */; };
 		024A07B223FCBC3C009FBA6C /* itlwm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 024A07B123FCBC3C009FBA6C /* itlwm.cpp */; };
@@ -1062,6 +1074,18 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		BC0000000000000000000001 /* BcmChip.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = BcmChip.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000002 /* ChipConfigurator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ChipConfigurator.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000004 /* ChipConfigurator.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = ChipConfigurator.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000005 /* Dlimage.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Dlimage.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000006 /* DlimageArrays.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DlimageArrays.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000008 /* EmbeddedFirmware.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = EmbeddedFirmware.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000009 /* ItlBcm.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ItlBcm.cpp; sourceTree = "<group>"; };
+		BC000000000000000000000B /* ItlBcm.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = ItlBcm.hpp; sourceTree = "<group>"; };
+		BC000000000000000000000C /* OlMsg.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = OlMsg.hpp; sourceTree = "<group>"; };
+		BC000000000000000000000D /* SharedInfo.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SharedInfo.hpp; sourceTree = "<group>"; };
+		BC000000000000000000000E /* Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Transport.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000010 /* Transport.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Transport.hpp; sourceTree = "<group>"; };
 		A112F5371BD949CD8CA19D89 /* WCL.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = AirportItlwm/WCL/WCL.cpp; sourceTree = SOURCE_ROOT; };
 		024A07AC23FCBC3C009FBA6C /* itlwm.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = itlwm.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		024A07AF23FCBC3C009FBA6C /* itlwm.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = itlwm.hpp; sourceTree = "<group>"; };
@@ -1478,6 +1502,7 @@
 				17FD7F0B255E496000611406 /* hal_iwn */,
 				F8AF3A2E24F9F25E008911C1 /* hal_iwm */,
 				F8AF3A2D24F9F246008911C1 /* hal_iwx */,
+				BC0000000000000000000011 /* hal_bcm */,
 				024A07AF23FCBC3C009FBA6C /* itlwm.hpp */,
 				024A07B123FCBC3C009FBA6C /* itlwm.cpp */,
 				024A07B323FCBC3C009FBA6C /* Info.plist */,
@@ -1837,6 +1862,25 @@
 			path = linux;
 			sourceTree = "<group>";
 		};
+		BC0000000000000000000011 /* hal_bcm */ = {
+			isa = PBXGroup;
+			children = (
+				BC0000000000000000000001 /* BcmChip.hpp */,
+				BC0000000000000000000002 /* ChipConfigurator.cpp */,
+				BC0000000000000000000004 /* ChipConfigurator.hpp */,
+				BC0000000000000000000005 /* Dlimage.hpp */,
+				BC0000000000000000000006 /* DlimageArrays.cpp */,
+				BC0000000000000000000008 /* EmbeddedFirmware.hpp */,
+				BC0000000000000000000009 /* ItlBcm.cpp */,
+				BC000000000000000000000B /* ItlBcm.hpp */,
+				BC000000000000000000000C /* OlMsg.hpp */,
+				BC000000000000000000000D /* SharedInfo.hpp */,
+				BC000000000000000000000E /* Transport.cpp */,
+				BC0000000000000000000010 /* Transport.hpp */,
+			);
+			path = hal_bcm;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -2171,6 +2215,14 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BC0000000000000000000101 /* BcmChip.hpp in Headers */,
+				BC0000000000000000000102 /* ChipConfigurator.hpp in Headers */,
+				BC0000000000000000000103 /* Dlimage.hpp in Headers */,
+				BC0000000000000000000104 /* EmbeddedFirmware.hpp in Headers */,
+				BC0000000000000000000105 /* ItlBcm.hpp in Headers */,
+				BC0000000000000000000106 /* OlMsg.hpp in Headers */,
+				BC0000000000000000000107 /* SharedInfo.hpp in Headers */,
+				BC0000000000000000000108 /* Transport.hpp in Headers */,
 				F8D94C842B9ABFE20081A3C4 /* CCDataPipe.h in Headers */,
 				F8D94C852B9ABFE20081A3C4 /* debug.h in Headers */,
 				F8D94C862B9ABFE20081A3C4 /* IOSkywalkEthernetInterface.h in Headers */,
@@ -2211,6 +2263,14 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BC0000000000000000000101 /* BcmChip.hpp in Headers */,
+				BC0000000000000000000102 /* ChipConfigurator.hpp in Headers */,
+				BC0000000000000000000103 /* Dlimage.hpp in Headers */,
+				BC0000000000000000000104 /* EmbeddedFirmware.hpp in Headers */,
+				BC0000000000000000000105 /* ItlBcm.hpp in Headers */,
+				BC0000000000000000000106 /* OlMsg.hpp in Headers */,
+				BC0000000000000000000107 /* SharedInfo.hpp in Headers */,
+				BC0000000000000000000108 /* Transport.hpp in Headers */,
 				F8D94C842B9ABFE20081A3C4 /* CCDataPipe.h in Headers */,
 				F8D94C852B9ABFE20081A3C4 /* debug.h in Headers */,
 				F8D94C862B9ABFE20081A3C4 /* IOSkywalkEthernetInterface.h in Headers */,
@@ -3347,6 +3407,10 @@
 				F8D94CEC2B9ABFE20081A3C4 /* scan.cpp in Sources */,
 				F8D94CED2B9ABFE20081A3C4 /* IOPCIEDeviceWrapper.cpp in Sources */,
 				F8D94CEE2B9ABFE20081A3C4 /* ItlIwm.cpp in Sources */,
+				BC0000000000000000000003 /* ChipConfigurator.cpp in Sources */,
+				BC0000000000000000000007 /* DlimageArrays.cpp in Sources */,
+				BC000000000000000000000A /* ItlBcm.cpp in Sources */,
+				BC000000000000000000000F /* Transport.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3429,6 +3493,10 @@
 				F8D94CEC2B9ABFE20081A3C4 /* scan.cpp in Sources */,
 				F8D94CED2B9ABFE20081A3C4 /* IOPCIEDeviceWrapper.cpp in Sources */,
 				F8D94CEE2B9ABFE20081A3C4 /* ItlIwm.cpp in Sources */,
+				BC0000000000000000000003 /* ChipConfigurator.cpp in Sources */,
+				BC0000000000000000000007 /* DlimageArrays.cpp in Sources */,
+				BC000000000000000000000A /* ItlBcm.cpp in Sources */,
+				BC000000000000000000000F /* Transport.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4196,6 +4264,7 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					AIRPORT_WCL,
 					AIRPORT_VTD,
+					ITLWM_BCM,
 					"$(inherited)",
 					AIRPORT,
 					"__IO80211_TARGET=__MAC_26_0",
@@ -4230,6 +4299,7 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					AIRPORT_WCL,
 					AIRPORT_VTD,
+					ITLWM_BCM,
 					"$(inherited)",
 					AIRPORT,
 					"__IO80211_TARGET=__MAC_15_2",
@@ -4264,6 +4334,7 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					AIRPORT_WCL,
 					AIRPORT_VTD,
+					ITLWM_BCM,
 					"__IO80211_TARGET=__MAC_26_0",
 					AIRPORT,
 					__PRIVATE_SPI__,
@@ -4298,6 +4369,7 @@
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					AIRPORT_WCL,
 					AIRPORT_VTD,
+					ITLWM_BCM,
 					"__IO80211_TARGET=__MAC_15_2",
 					AIRPORT,
 					__PRIVATE_SPI__,

@@ -12,6 +12,9 @@
 #include "ItlIwm.hpp"
 #include "ItlIwx.hpp"
 #include "ItlIwn.hpp"
+#ifdef ITLWM_BCM
+#include "ItlBcm.hpp"
+#endif
 
 #define super IOService
 OSDefineMetaClassAndStructors(IOPCIEDeviceWrapper, IOService);
@@ -80,6 +83,12 @@ probe(IOService *provider, SInt32 *score)
         isMatch = true;
         fHalService = new ItlIwn;
     }
+#ifdef ITLWM_BCM
+    if (!isMatch && ItlBcm::bcm_match(device)) {
+        isMatch = true;
+        fHalService = new ItlBcm;
+    }
+#endif
     if (isMatch) {
         XYLog("%s Found\n", __FUNCTION__);
         device->findPCICapability(PCI_CAP_ID_MSIX, &msixCap);
