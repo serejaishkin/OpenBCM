@@ -29,10 +29,17 @@
 		BC0000000000000000000106 /* OlMsg.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000C /* OlMsg.hpp */; };
 		BC0000000000000000000107 /* SharedInfo.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000D /* SharedInfo.hpp */; };
 		BC0000000000000000000108 /* Transport.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000010 /* Transport.hpp */; };
+		BC0000000000000000000109 /* Dma64RxRing.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000011 /* Dma64RxRing.hpp */; };
+		BC000000000000000000010A /* Dma64TxRing.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000013 /* Dma64TxRing.hpp */; };
+		BC000000000000000000010B /* D11.hpp in Headers */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000015 /* D11.hpp */; };
+
 		BC0000000000000000000003 /* ChipConfigurator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000002 /* ChipConfigurator.cpp */; };
 		BC0000000000000000000007 /* DlimageArrays.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000006 /* DlimageArrays.cpp */; };
 		BC000000000000000000000A /* ItlBcm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000009 /* ItlBcm.cpp */; };
 		BC000000000000000000000F /* Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000E /* Transport.cpp */; };
+		BC0000000000000000000021 /* Dma64RxRing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000012 /* Dma64RxRing.cpp */; };
+		BC0000000000000000000022 /* Dma64TxRing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000014 /* Dma64TxRing.cpp */; };
+
 		A112F5371BD949CD8CA19D88 /* WCL.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A112F5371BD949CD8CA19D89 /* WCL.cpp */; };
 		024A07B023FCBC3C009FBA6C /* itlwm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 024A07AF23FCBC3C009FBA6C /* itlwm.hpp */; };
 		024A07B223FCBC3C009FBA6C /* itlwm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 024A07B123FCBC3C009FBA6C /* itlwm.cpp */; };
@@ -1086,6 +1093,12 @@
 		BC000000000000000000000D /* SharedInfo.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SharedInfo.hpp; sourceTree = "<group>"; };
 		BC000000000000000000000E /* Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Transport.cpp; sourceTree = "<group>"; };
 		BC0000000000000000000010 /* Transport.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Transport.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000011 /* Dma64RxRing.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Dma64RxRing.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000012 /* Dma64RxRing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dma64RxRing.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000013 /* Dma64TxRing.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Dma64TxRing.hpp; sourceTree = "<group>"; };
+		BC0000000000000000000014 /* Dma64TxRing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dma64TxRing.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000015 /* D11.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = D11.hpp; sourceTree = "<group>"; };
+
 		A112F5371BD949CD8CA19D89 /* WCL.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = AirportItlwm/WCL/WCL.cpp; sourceTree = SOURCE_ROOT; };
 		024A07AC23FCBC3C009FBA6C /* itlwm.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = itlwm.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		024A07AF23FCBC3C009FBA6C /* itlwm.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = itlwm.hpp; sourceTree = "<group>"; };
@@ -1877,6 +1890,11 @@
 				BC000000000000000000000D /* SharedInfo.hpp */,
 				BC000000000000000000000E /* Transport.cpp */,
 				BC0000000000000000000010 /* Transport.hpp */,
+				BC0000000000000000000011 /* Dma64RxRing.hpp */,
+				BC0000000000000000000012 /* Dma64RxRing.cpp */,
+				BC0000000000000000000013 /* Dma64TxRing.hpp */,
+				BC0000000000000000000014 /* Dma64TxRing.cpp */,
+				BC0000000000000000000015 /* D11.hpp */,
 			);
 			path = hal_bcm;
 			sourceTree = "<group>";
@@ -2223,6 +2241,12 @@
 				BC0000000000000000000106 /* OlMsg.hpp in Headers */,
 				BC0000000000000000000107 /* SharedInfo.hpp in Headers */,
 				BC0000000000000000000108 /* Transport.hpp in Headers */,
+				BC0000000000000000000109 /* Dma64RxRing.hpp in Headers */,
+				BC000000000000000000010A /* Dma64TxRing.hpp in Headers */,
+				BC000000000000000000010B /* D11.hpp in Headers */,
+				BC0000000000000000000109 /* Dma64RxRing.hpp in Headers */,
+				BC000000000000000000010A /* Dma64TxRing.hpp in Headers */,
+				BC000000000000000000010B /* D11.hpp in Headers */,
 				F8D94C842B9ABFE20081A3C4 /* CCDataPipe.h in Headers */,
 				F8D94C852B9ABFE20081A3C4 /* debug.h in Headers */,
 				F8D94C862B9ABFE20081A3C4 /* IOSkywalkEthernetInterface.h in Headers */,
@@ -2271,6 +2295,9 @@
 				BC0000000000000000000106 /* OlMsg.hpp in Headers */,
 				BC0000000000000000000107 /* SharedInfo.hpp in Headers */,
 				BC0000000000000000000108 /* Transport.hpp in Headers */,
+				BC0000000000000000000109 /* Dma64RxRing.hpp in Headers */,
+				BC000000000000000000010A /* Dma64TxRing.hpp in Headers */,
+				BC000000000000000000010B /* D11.hpp in Headers */,
 				F8D94C842B9ABFE20081A3C4 /* CCDataPipe.h in Headers */,
 				F8D94C852B9ABFE20081A3C4 /* debug.h in Headers */,
 				F8D94C862B9ABFE20081A3C4 /* IOSkywalkEthernetInterface.h in Headers */,
@@ -3411,6 +3438,8 @@
 				BC0000000000000000000007 /* DlimageArrays.cpp in Sources */,
 				BC000000000000000000000A /* ItlBcm.cpp in Sources */,
 				BC000000000000000000000F /* Transport.cpp in Sources */,
+				BC0000000000000000000021 /* Dma64RxRing.cpp in Sources */,
+				BC0000000000000000000022 /* Dma64TxRing.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

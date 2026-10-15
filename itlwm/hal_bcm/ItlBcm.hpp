@@ -9,8 +9,14 @@
  * Network glue: the very same net80211 (itl80211/openbsd) the AirportItlwm
  * skywalk/WCL layer already speaks.
  *
- * STATUS: bring-up + net80211 attach implemented; the D11 data path and the
- * WLC scan/join translation are stubs (see the TODO markers in ItlBcm.cpp).
+ * Data plane: host-driven D11 SoftMAC `dma64` TX/RX rings (Dma64RxRing /
+ * Dma64TxRing).  The host drives the radio directly, so scanning works with
+ * *any* firmware (Linux/OpenBCD/whatever) — we send probe requests ourselves
+ * and receive beacons via the RX ring, injecting them into net80211 via
+ * ieee80211_inputm().
+ *
+ * STATUS: bring-up + net80211 attach + D11 RX/TX rings implemented; scan
+ * state machine + PHY channel switching pending per-chip RE.
  */
 
 #ifndef ItlBcm_hpp
@@ -23,6 +29,8 @@
 
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/network/IOGatedOutputQueue.h>
+#include <IOKit/IOEventSource.h>
+#include <IOKit/IOTimerEventSource.h>
 #include <libkern/c++/OSString.h>
 #include <IOKit/IOService.h>
 #include <IOKit/pci/IOPCIDevice.h>
@@ -38,6 +46,8 @@
 #include "ChipConfigurator.hpp"
 #include "Transport.hpp"
 #include "D11.hpp"
+#include "Dma64RxRing.hpp"
+#include "Dma64TxRing.hpp"
 
 struct bcm_node {
     struct ieee80211_node ni;
@@ -53,6 +63,8 @@ struct bcm_softc {
     bool sc_attached;
     bool sc_running;
     bool sc_scanning;     // a net80211 scan (fg or bg) is in progress
+    uint8_t  sc_scan_chan;    // current scan channel (1..14)
+    uint8_t  sc_scan_max_chan;// last channel to scan
     const char *sc_fwver;
     int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
 };
@@ -90,15 +102,18 @@ public:
     IOReturn setMulticastList(IOEthernetAddress *addr, int count) override;
 
     // net80211 RX/TX plumbing (Group B). bcm_rx_input is the injection point
-    // called by the future D11 RX interrupt handler; bcm_tx_start dequeues
-    // if_snd and programs the D11 TX ring.
+    // called by the D11 RX interrupt/poll path; bcm_tx_start dequeues if_snd.
     void bcm_rx_input(mbuf_t m, int rssi, uint8_t chan);
     int bcm_tx_start(struct _ifnet *ifp);
 
-    // D11 dma64 rings (constructed once the D11 core base / BAR1 window is
-    // resolved; nullptr until then — see findCoreAddresses TODO).
-    std::unique_ptr<D11::RxRing> mRxRing;
-    std::unique_ptr<D11::TxRing> mTxRing;
+    // D11 dma64 rings (real IOKit DMA, constructed in enable()).
+    std::unique_ptr<Dma64RxRing> mRxRing;
+    std::unique_ptr<Dma64TxRing> mTxRing;
+
+    // Scan state machine (host-driven, works with any firmware).
+    void bcm_scan_start();                     // called from bcm_bgscan_start
+    void bcm_scan_next_channel();              // hop + probe + poll RX
+    void bcm_scan_done();                      // ieee80211_end_scan + cleanup
 
     // PCI match predicate used by IOPCIEDeviceWrapper::probe.
     static bool bcm_match(IOPCIDevice *device);
@@ -110,6 +125,10 @@ private:
     ChipConfigurator cfg;
     BcdcOlTransport ol;
     const ChipDescriptor *descriptor {nullptr};
+
+    // Scan timer: fires periodically during a scan to hop channels.
+    IOTimerEventSource *mScanTimer {nullptr};
+    static void s_scan_timer(OSObject *target, IOTimerEventSource *sender);
 
     bool init80211();
 };

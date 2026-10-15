@@ -98,6 +98,18 @@ bool ChipConfigurator::probe() {
         IOLog("%s: failed to fetch the information about the chip memory\n", LOG_PREFIX);
         return false;
     }
+
+    // D11 core base: try EROM-discovered core 0x840 first, fall back to the
+    // chip descriptor hardcoded value.
+    const CoreDescriptor *d11Core = findCoreById(0x840);
+    if (d11Core && d11Core->base) {
+        mD11CoreBase = d11Core->base;
+        IOLog("%s: D11 core (0x840) at 0x%x\n", LOG_PREFIX, mD11CoreBase);
+    } else {
+        mD11CoreBase = mDescriptor ? mDescriptor->d11CoreBase : 0;
+        IOLog("%s: D11 core base from descriptor: 0x%x\n", LOG_PREFIX, mD11CoreBase);
+    }
+
     return true;
 }
 
@@ -533,6 +545,29 @@ UInt32 ChipConfigurator::awaitFirmware(UInt32 timeoutMs) {
     // initialize."
     IOLog("%s: awaitFirmware(%u ms)\n", LOG_PREFIX, timeoutMs);
     return 0;
+}
+
+UInt32 ChipConfigurator::readD11Reg(UInt32 offset) {
+    // D11 core registers live in the backplane address space, accessed via
+    // BAR0.  BAR0 maps the backplane window starting at ~0x18000000 on
+    // PCIe BCM chips; the D11 core base is a backplane address.
+    // TODO(RE): validate the BAR0 backplane window base per chip.
+    if (!mBar1 || !mD11CoreBase || !mMap) {
+        return 0;
+    }
+    volatile UInt8 *va = (volatile UInt8 *)mMap->getVirtualAddress();
+    // Assume BAR0 offset 0 == backplane 0x18000000.
+    UInt32 d11Offset = mD11CoreBase - 0x18000000u;
+    return OSReadLittleInt32((void *)va, d11Offset + offset);
+}
+
+void ChipConfigurator::writeD11Reg(UInt32 offset, UInt32 value) {
+    if (!mBar1 || !mD11CoreBase || !mMap) {
+        return;
+    }
+    volatile UInt8 *va = (volatile UInt8 *)mMap->getVirtualAddress();
+    UInt32 d11Offset = mD11CoreBase - 0x18000000u;
+    OSWriteLittleInt32((void *)va, d11Offset + offset, value);
 }
 
 void ChipConfigurator::logBootReport() {

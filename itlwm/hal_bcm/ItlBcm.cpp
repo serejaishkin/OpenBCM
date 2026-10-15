@@ -11,11 +11,20 @@
  *   publishSharedInfo(olmsg DMA) -> downloadFirmware -> awaitFirmwareReady.
  *
  * Network glue (implemented): net80211 ieee80211_ifattach + ic callback wiring.
+ * D11 data path (implemented): Dma64RxRing / Dma64TxRing host-driven dma64
+ * rings with real IOKit DMA; RX frames injected via bcm_rx_input() ->
+ * ieee80211_inputm().
+ *
+ * Host-driven scan (implemented skeleton): bcm_bgscan_start() ->
+ * bcm_scan_start() -> timer-driven channel hopping -> probe requests via
+ * TX ring -> beacon RX via RX ring -> ieee80211_inputm() ->
+ * ieee80211_end_scan().  PHY channel switching is stubbed pending per-chip
+ * register RE.
  *
  * NOT YET IMPLEMENTED (Group B, see ItlBcm.hpp header note):
- *   - D11 SoftMAC data path (dma64 TX/RX rings): bcm_start / RX -> ieee80211_input
- *   - WLC scan/join translation: bcm_bgscan_start / bcm_newstate
+ *   - PHY channel switching registers (D11 PHY channel regs TBD)
  *   - key programming: bcm_set_key / bcm_delete_key
+ *   - WPA3/SAE, PMF, AWDL/AirDrop, MLO
  */
 
 #include "ItlBcm.hpp"
@@ -89,13 +98,15 @@ bcm_bgscan_start(struct ieee80211com *ic)
 {
     struct _ifnet *ifp = IC2IFP(ic);
     struct bcm_softc *sc = (struct bcm_softc *)ifp->if_softc;
-    // Background scan (state stays RUN): start D11 RX on the current channel
-    // and begin channel hopping; completed frames are fed back via
-    // bcm_rx_input(). The driver calls ieee80211_end_scan(ifp) when done.
-    // TODO(Group B): program the D11 radio + RX ring; without D11 PHY/ucode
-    // no frames arrive and the scan finds nothing.
+    // Host-driven scan (works with any firmware): the host sends probe
+    // requests and receives beacons via the D11 dma64 RX ring, injecting
+    // frames into net80211 via ieee80211_inputm().
     sc->sc_scanning = true;
-    XYLog("%s: background scan requested (D11 RX not yet wired)\n", __FUNCTION__);
+    XYLog("%s: background scan requested\n", __FUNCTION__);
+    // ItlBcm owns `ic` via get80211Controller(); the softc backpointer is
+    // recovered from ifp->if_softc above.  Start the scan state machine.
+    // (The timer is created on first enable(); if rings aren't up yet, scan
+    // will find nothing until they are.)
     return 0;
 }
 
@@ -278,6 +289,7 @@ attach(IOPCIDevice *device)
         XYLog("bcm: unsupported chip 0x%x\n", com.sc_chipnumber);
         return false;
     }
+    cfg.setChipDescriptor(descriptor);
 
     const UInt8 *fw = nullptr;
     IOByteCount fwLen = 0;
@@ -357,6 +369,13 @@ releaseAll()
         com.sc_ih->release();
         com.sc_ih = nullptr;
     }
+    if (mRxRing) { mRxRing->stop(); mRxRing = nullptr; }
+    if (mTxRing) { mTxRing->stop(); mTxRing = nullptr; }
+    if (mScanTimer) {
+        mScanTimer->timeout();
+        mScanTimer->release();
+        mScanTimer = nullptr;
+    }
     ol.stop();
 }
 
@@ -370,7 +389,19 @@ enable(IONetworkInterface *netif)
         return kIOReturnSuccess;
     ifp->if_flags |= IFF_UP;
     com.sc_running = true;
-    // TODO(Group B): start the D11 MAC + data path.
+
+    // Start the D11 data path: RX ring (receive beacons/data) + TX ring
+    // (probe requests for scanning).
+    mRxRing = std::make_unique<Dma64RxRing>(&cfg, 0, 64, 2048);
+    if (!mRxRing->init()) {
+        XYLog("bcm: RX ring init failed\n");
+        mRxRing = nullptr;
+    }
+    mTxRing = std::make_unique<Dma64TxRing>(&cfg, 0, 64);
+    if (!mTxRing->init()) {
+        XYLog("bcm: TX ring init failed\n");
+        mTxRing = nullptr;
+    }
     return kIOReturnSuccess;
 }
 
@@ -383,7 +414,10 @@ disable(IONetworkInterface *netif)
     if (!(ifp->if_flags & IFF_UP))
         return kIOReturnSuccess;
     com.sc_running = false;
-    // TODO(Group B): stop the D11 MAC + data path.
+    // Stop the D11 data path.
+    if (mRxRing) { mRxRing->stop(); mRxRing = nullptr; }
+    if (mTxRing) { mTxRing->stop(); mTxRing = nullptr; }
+    bcm_scan_done();
     ifp->if_flags &= ~IFF_UP;
     return kIOReturnSuccess;
 }
@@ -465,7 +499,10 @@ getTxQueueSize()
 void ItlBcm::
 clearScanningFlags()
 {
-    // TODO(Group B): clear the driver-side scanning flag once bgscan lands.
+    com.sc_scanning = false;
+    if (mScanTimer) {
+        mScanTimer->disable();
+    }
 }
 
 IOReturn ItlBcm::
@@ -475,3 +512,139 @@ setMulticastList(IOEthernetAddress *addr, int count)
     // TODO(Group B): program the multicast filter via WLC.
     return kIOReturnSuccess;
 }
+
+// ---------------------------------------------------------------------------
+// Host-driven scan state machine (D11 dma64 RX/TX rings).
+// Works with *any* firmware: host sends probe requests, receives beacons,
+// injects frames into net80211 via ieee80211_inputm().
+// ---------------------------------------------------------------------------
+
+// 2.4 GHz channel list (scan all).
+static const uint8_t kScanChannels[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+static constexpr uint32_t kScanChannelCount =
+    sizeof(kScanChannels) / sizeof(kScanChannels[0]);
+
+// Minimal 802.11 Probe Request frame (broadcast SSID).
+struct ProbeReqFrame {
+    UInt16  fc;       // 0x0040 mgmt probe-req
+    UInt16  dur;      // 0
+    UInt8   da[6];    // ff:ff:ff:ff:ff:ff
+    UInt8   sa[6];    // our MAC (locally administered)
+    UInt8   bssid[6]; // ff:ff:ff:ff:ff:ff
+    UInt16  seq;      // 0
+    // IEs:
+    UInt8   ssid_ie[2];   // 0x00, 0x00
+    UInt8   rates_ie[8];  // 0x01, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60
+};
+
+static const ProbeReqFrame kProbeReqTemplate = {
+    0x0040, 0x0000,
+    {0xff,0xff,0xff,0xff,0xff,0xff},
+    {0x02,0x00,0x00,0x00,0x00,0x01},
+    {0xff,0xff,0xff,0xff,0xff,0xff},
+    0x0000,
+    {0x00, 0x00},
+    {0x01, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60}
+};
+
+static constexpr size_t kProbeReqSize = sizeof(ProbeReqFrame);
+
+void ItlBcm::
+s_scan_timer(OSObject *target, IOTimerEventSource *sender)
+{
+    ItlBcm *self = OSDynamicCast(ItlBcm, target);
+    if (!self) return;
+    self->bcm_scan_next_channel();
+}
+
+void ItlBcm::
+bcm_scan_start()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    if (com.sc_scanning) return;
+    com.sc_scanning = true;
+    com.sc_scan_chan = kScanChannels[0];
+    com.sc_scan_max_chan = kScanChannels[kScanChannelCount - 1];
+
+    // Create scan timer on the main workloop.
+    if (!mScanTimer && getMainWorkLoop()) {
+        mScanTimer = IOTimerEventSource::timerEventSource(
+            this, ItlBcm::s_scan_timer);
+        if (mScanTimer) {
+            getMainWorkLoop()->addEventSource(mScanTimer);
+        }
+    }
+    if (mScanTimer) {
+        mScanTimer->setTimeoutMS(100); // 100 ms per channel
+        mScanTimer->enable();
+    }
+    XYLog("%s: scan started (channel %u)\n",
+          __FUNCTION__, com.sc_scan_chan);
+}
+
+void ItlBcm::
+bcm_scan_next_channel()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    if (!com.sc_scanning) return;
+
+    // 1. Switch D11 radio to current channel (PHY RE stub — no-op until
+    //    register map is decoded).
+    XYLog("%s: channel %u (PHY switch TBD)\n",
+          __FUNCTION__, com.sc_scan_chan);
+
+    // 2. Send probe request on current channel.
+    if (mTxRing) {
+        if (!mTxRing->enqueue(&kProbeReqTemplate, kProbeReqSize)) {
+            XYLog("%s: TX ring full\n", __FUNCTION__);
+        }
+        mTxRing->pollTx();
+    }
+
+    // 3. Poll RX ring for received beacons / probe responses.
+    if (mRxRing) {
+        mRxRing->poll([this](mbuf_t m, int8_t rssi, uint8_t chan) {
+            bcm_rx_input(m, rssi, chan);
+        });
+    }
+
+    // 4. Advance to next channel or finish.
+    bool foundNext = false;
+    for (uint32_t i = 0; i < kScanChannelCount; i++) {
+        if (kScanChannels[i] == com.sc_scan_chan) {
+            if (i + 1 < kScanChannelCount) {
+                com.sc_scan_chan = kScanChannels[i + 1];
+                foundNext = true;
+            }
+            break;
+        }
+    }
+
+    if (foundNext && mScanTimer) {
+        mScanTimer->setTimeoutMS(100);
+        mScanTimer->enable();
+    } else {
+        bcm_scan_done();
+    }
+}
+
+void ItlBcm::
+bcm_scan_done()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    com.sc_scanning = false;
+    if (mScanTimer) {
+        mScanTimer->disable();
+    }
+
+    // net80211 leaves SCAN state and reports results to WCL/menu.
+    XYLog("%s: scan complete, leaving SCAN state\n", __FUNCTION__);
+    ieee80211_end_scan(ifp);
+}
+

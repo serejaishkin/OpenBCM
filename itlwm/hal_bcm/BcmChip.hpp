@@ -54,15 +54,19 @@ struct ChipDescriptor {
     const char *firmwareResourceName; // embedded resource in the kext bundle
     UInt32 sromSlide;   // SROM slide offset for this chip
     bool  needsCortexR4; // configurator gate
+    // D11 SoftMAC core base address (backplane address of core id 0x840).
+    // Filled by ChipConfigurator::probe() from the EROM table; hardcoded
+    // fallback values below pending per-chip EROM validation.
+    UInt32 d11CoreBase;
 };
 
 // All three run the same AppleCore `_wlc_ol_up` loader; the firmware resource
 // name is informational (the image is selected by chipNumber/rev via the
 // embedded arrays).
 static const ChipDescriptor kBcmChipTable[] = {
-    { 0x43a0, 0x00004360, TransportType::kAppleCore, "apple_4352pci_dlarray.bin",    0x00000000, true },
-    { 0x43ba, 0x0000aa52, TransportType::kAppleCore, "apple_43602pci_dlarray.bin",   0x00000000, true },
-    { 0x43a3, 0x00004350, TransportType::kAppleCore, "apple_4350pci_dlarray.bin",    0x40000000, true },
+    { 0x43a0, 0x00004360, TransportType::kAppleCore, "apple_4352pci_dlarray.bin",    0x00000000, true, 0x18004000 },
+    { 0x43ba, 0x0000aa52, TransportType::kAppleCore, "apple_43602pci_dlarray.bin",   0x00000000, true, 0x18004000 },
+    { 0x43a3, 0x00004350, TransportType::kAppleCore, "apple_4350pci_dlarray.bin",    0x40000000, true, 0x18004000 },
 };
 
 // Firmware IPC channel addresses exposed after download (shared memory hdr).

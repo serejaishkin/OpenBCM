@@ -62,12 +62,30 @@ public:
     // requestFirmware()).
     const dl_image::Info &getDlimageInfo() const { return mDlimageInfo; }
 
+    // Set the chip descriptor (called by the controller after probe to provide
+    // per-chip fallback values such as the D11 core base).
+    void setChipDescriptor(const ChipDescriptor *desc) { mDescriptor = desc; }
+
     // Probed values (mirrors of BCMC's Configurator fields).
     UInt32 getChipId() const { return mChipId; }
     UInt32 getChipRevision() const { return mChipRev; }
     UInt32 getInterconnectType() const { return mInterconnect; }
     UInt32 getCoreCount() const { return mCoreCount; }
     const CoreDescriptor *getCoreList() const { return mCoreList; }
+
+    // D11 SoftMAC core (id 0x840) base address for dma64 register access.
+    // Valid after probe(); 0 if not found.
+    UInt32 getD11CoreBase() const { return mD11CoreBase; }
+
+    // BAR0-backed D11 register access.  `offset` is relative to the D11 core
+    // base (e.g. 0x200 + ch*0x40 for DMA channel windows).  Returns 0 if the
+    // D11 core base is unknown.
+    UInt32 readD11Reg(UInt32 offset);
+    void   writeD11Reg(UInt32 offset, UInt32 value);
+
+    // BAR0 map for direct memory access (used by D11 dma64 descriptor rings).
+    IOMemoryMap *bar0Map() const { return mMap; }
+    volatile UInt8 *bar0Address() const { return mMap ? (volatile UInt8 *)mMap->getVirtualAddress() : nullptr; }
 
     // One-shot single-line bring-up diagnostics (called by the controller
     // after awaitFirmwareReady): EROM core table, R4 base, tcm base/size,
@@ -103,6 +121,7 @@ private:
     UInt32 mCoreCount {0};
     UInt32 mTcmBase {0};
     UInt32 mTcmSize {0};
+    UInt32 mD11CoreBase {0};   // backplane base of D11 core (0x840), 0 if unknown
     const ChipDescriptor *mDescriptor {nullptr};
     dl_image::Info mDlimageInfo {};
     // Effective number of bytes memcpy'd into the TCM (`_wlc_ol_up` step 9 uses
