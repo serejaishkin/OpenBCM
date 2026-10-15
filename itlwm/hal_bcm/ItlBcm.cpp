@@ -369,8 +369,8 @@ releaseAll()
         com.sc_ih->release();
         com.sc_ih = nullptr;
     }
-    if (mRxRing) { mRxRing->stop(); mRxRing = nullptr; }
-    if (mTxRing) { mTxRing->stop(); mTxRing = nullptr; }
+    if (mRxRing) { mRxRing->stop(); delete mRxRing; mRxRing = nullptr; }
+    if (mTxRing) { mTxRing->stop(); delete mTxRing; mTxRing = nullptr; }
     if (mScanTimer) {
         mScanTimer->timeout();
         mScanTimer->release();
@@ -392,14 +392,16 @@ enable(IONetworkInterface *netif)
 
     // Start the D11 data path: RX ring (receive beacons/data) + TX ring
     // (probe requests for scanning).
-    mRxRing = std::make_unique<Dma64RxRing>(&cfg, 0, 64, 2048);
+    mRxRing = new Dma64RxRing(&cfg, 0, 64, 2048);
     if (!mRxRing->init()) {
         XYLog("bcm: RX ring init failed\n");
+        delete mRxRing;
         mRxRing = nullptr;
     }
-    mTxRing = std::make_unique<Dma64TxRing>(&cfg, 0, 64);
+    mTxRing = new Dma64TxRing(&cfg, 0, 64);
     if (!mTxRing->init()) {
         XYLog("bcm: TX ring init failed\n");
+        delete mTxRing;
         mTxRing = nullptr;
     }
     return kIOReturnSuccess;
@@ -415,8 +417,8 @@ disable(IONetworkInterface *netif)
         return kIOReturnSuccess;
     com.sc_running = false;
     // Stop the D11 data path.
-    if (mRxRing) { mRxRing->stop(); mRxRing = nullptr; }
-    if (mTxRing) { mTxRing->stop(); mTxRing = nullptr; }
+    if (mRxRing) { mRxRing->stop(); delete mRxRing; mRxRing = nullptr; }
+    if (mTxRing) { mTxRing->stop(); delete mTxRing; mTxRing = nullptr; }
     bcm_scan_done();
     ifp->if_flags &= ~IFF_UP;
     return kIOReturnSuccess;

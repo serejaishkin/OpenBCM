@@ -22,9 +22,54 @@ static constexpr uint32_t kTxCtlLast  = 0x60000000u;
 static constexpr uint32_t kTxCtlSingle = kTxCtlFirst | kTxCtlLast;
 static constexpr uint32_t kTxCtlWrap  = 0x10000000u;
 
+// ---- Static callback wrappers (ctx == this) ----
+
+static uint32_t s_regRead(void *ctx, uint32_t off) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    return self->mCfg->readD11Reg(kD11TxCh0Base + off);
+}
+
+static void s_regWrite(void *ctx, uint32_t off, uint32_t val) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    self->mCfg->writeD11Reg(kD11TxCh0Base + off, val);
+}
+
+static void s_descWrite(void *ctx, uint32_t idx, uint32_t ctl,
+                        uint32_t len, uint64_t addr) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    volatile UInt32 *d = (volatile UInt32 *)(self->mDmaVa + self->mTableOffset + idx * 16);
+    d[0] = ctl;
+    d[1] = len;
+    d[2] = (uint32_t)(addr & 0xffffffffu);
+    d[3] = (uint32_t)(addr >> 32);
+}
+
+static uint32_t s_descReadCtl(void *ctx, uint32_t idx) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    return OSReadLittleInt32((void *)(self->mDmaVa + self->mTableOffset + idx * 16), 0);
+}
+
+static uint32_t s_descReadLen(void *ctx, uint32_t idx) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    return OSReadLittleInt32((void *)(self->mDmaVa + self->mTableOffset + idx * 16), 4);
+}
+
+static uint64_t s_descReadAddr(void *ctx, uint32_t idx) {
+    Dma64TxRing *self = static_cast<Dma64TxRing *>(ctx);
+    uint32_t lo = OSReadLittleInt32((void *)(self->mDmaVa + self->mTableOffset + idx * 16), 8);
+    uint32_t hi = OSReadLittleInt32((void *)(self->mDmaVa + self->mTableOffset + idx * 16), 12);
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static void s_reclaimTxCb(void *cbCtx, const D11::TxDone &done) {
+    uint32_t *reclaimed = static_cast<uint32_t *>(cbCtx);
+    (*reclaimed)++;
+}
+
 Dma64TxRing::
 Dma64TxRing(ChipConfigurator *cfg, uint16_t channel, uint16_t count)
-    : mCfg(cfg), mChannel(channel), mCount(count) {
+    : mCfg(cfg), mChannel(channel), mCount(count),
+      mRing(nullptr) {
 }
 
 Dma64TxRing::
@@ -48,33 +93,10 @@ init() {
         return false;
     }
 
-    auto regRead = [this](uint32_t off) -> uint32_t {
-        return mCfg->readD11Reg(kD11TxCh0Base + off);
-    };
-    auto regWrite = [this](uint32_t off, uint32_t val) {
-        mCfg->writeD11Reg(kD11TxCh0Base + off, val);
-    };
-    auto descWrite = [this](uint32_t idx, uint32_t ctl, uint32_t len, uint64_t addr) {
-        volatile UInt32 *d = (volatile UInt32 *)(mDmaVa + mTableOffset + idx * 16);
-        d[0] = ctl;
-        d[1] = len;
-        d[2] = (uint32_t)(addr & 0xffffffffu);
-        d[3] = (uint32_t)(addr >> 32);
-    };
-    auto descReadCtl = [this](uint32_t idx) -> uint32_t {
-        return OSReadLittleInt32((void *)(mDmaVa + mTableOffset + idx * 16), 0);
-    };
-    auto descReadLen = [this](uint32_t idx) -> uint32_t {
-        return OSReadLittleInt32((void *)(mDmaVa + mTableOffset + idx * 16), 4);
-    };
-    auto descReadAddr = [this](uint32_t idx) -> uint64_t {
-        uint32_t lo = OSReadLittleInt32((void *)(mDmaVa + mTableOffset + idx * 16), 8);
-        uint32_t hi = OSReadLittleInt32((void *)(mDmaVa + mTableOffset + idx * 16), 12);
-        return ((uint64_t)hi << 32) | lo;
-    };
-
-    mRing = std::make_unique<D11::TxRing>(mCount, regRead, regWrite,
-                                          descWrite, descReadCtl, descReadLen, descReadAddr);
+    // Create D11::TxRing with static callbacks (ctx == this).
+    mRing = new D11::TxRing(mCount, this,
+                            s_regRead, s_regWrite,
+                            s_descWrite, s_descReadCtl, s_descReadLen, s_descReadAddr);
     mRing->setTableBusAddr(mTableBusAddr);
 
     if (!mRing->reset()) {
@@ -98,6 +120,8 @@ stop() {
     mRunning = false;
     if (mRing) {
         mCfg->writeD11Reg(kD11TxCh0Base + kRegCtl, 0);
+        delete mRing;
+        mRing = nullptr;
     }
     if (mDmaBuf) {
         mDmaBuf->release();
@@ -163,8 +187,6 @@ uint32_t Dma64TxRing::
 pollTx() {
     if (!mRunning || !mRing) return 0;
     uint32_t reclaimed = 0;
-    mRing->reclaimTx([&reclaimed](const D11::TxDone &done) {
-        reclaimed++;
-    });
+    mRing->reclaimTx(&reclaimed, s_reclaimTxCb);
     return reclaimed;
 }

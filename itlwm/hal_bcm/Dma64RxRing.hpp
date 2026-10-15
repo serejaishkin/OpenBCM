@@ -29,10 +29,12 @@
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <sys/kpi_mbuf.h>
-#include <memory>
-#include <functional>
 #include "D11.hpp"
 #include "ChipConfigurator.hpp"
+
+// Callback type for RX frame delivery: (mbuf_t, rssi, chan).  The callee
+// takes ownership of the mbuf.
+using Dma64RxCallback = void (*)(mbuf_t, int8_t, uint8_t);
 
 class Dma64RxRing {
 public:
@@ -48,7 +50,7 @@ public:
 
     // Poll for completed RX frames.  Returns the number delivered via `cb`.
     // `cb` receives (mbuf_t, rssi, chan) and takes ownership of the mbuf.
-    uint32_t poll(std::function<void(mbuf_t, int8_t, uint8_t)> cb);
+    uint32_t poll(Dma64RxCallback cb);
 
     bool isRunning() const { return mRunning; }
 
@@ -56,7 +58,7 @@ private:
     bool allocDma();
     void programHw();
     void postAllBuffers();
-    uint32_t reclaimCompleted(std::function<void(mbuf_t, int8_t, uint8_t)> cb);
+    uint32_t reclaimCompleted(Dma64RxCallback cb);
 
     ChipConfigurator *mCfg {nullptr};
     uint16_t mChannel {0};
@@ -72,7 +74,7 @@ private:
     uint32_t mBufOffset {0};        // RX buffer pool offset within DMA buf
     uint64_t mTableBusAddr {0};     // bus address of descriptor table
 
-    std::unique_ptr<D11::RxRing> mRing;
+    D11::RxRing *mRing {nullptr};
 
     uint16_t mProd {0};
     uint16_t mCons {0};
@@ -80,6 +82,10 @@ private:
 
     // RSSI read from PHY (stub until PHY regs are decoded).
     int8_t readRssi();
+
+    // Scan callback set during poll(); invoked by s_pollRxCb per received frame.
+    Dma64RxCallback mPollCb {nullptr};
+    uint32_t mDelivered {0};
 };
 
 #endif /* Dma64RxRing_hpp */

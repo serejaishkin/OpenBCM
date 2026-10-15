@@ -22,8 +22,6 @@
 #ifndef ItlBcm_hpp
 #define ItlBcm_hpp
 
-#include <memory>
-
 #include <compat.h>
 #include <linux/kernel.h>
 
@@ -107,8 +105,8 @@ public:
     int bcm_tx_start(struct _ifnet *ifp);
 
     // D11 dma64 rings (real IOKit DMA, constructed in enable()).
-    std::unique_ptr<Dma64RxRing> mRxRing;
-    std::unique_ptr<Dma64TxRing> mTxRing;
+    Dma64RxRing *mRxRing {nullptr};
+    Dma64TxRing *mTxRing {nullptr};
 
     // Scan state machine (host-driven, works with any firmware).
     void bcm_scan_start();                     // called from bcm_bgscan_start

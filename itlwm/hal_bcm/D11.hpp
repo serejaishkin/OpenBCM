@@ -23,13 +23,11 @@
 //   * Ring wrap uses producer-consumer distance; consumer (HW) advances by
 //     reading regbase+0x10 and computing ((hw - tableBus) >> 4) & (count-1).
 //
-// Callback split:
-//   * RegRead/RegWrite  — MMIO to the D11 channel window (ctl, prod, base,
-//     done).  Platform implements via BAR1 MMIO on device, or a fake
-//     register file on the host.
-//   * DescRead/DescWrite — descriptor table memory (16 bytes/slot).  Platform
-//     implements via its DMA-mapped table on device, or a fake buffer on the
-//     host.
+// Callback split (all raw function pointers with `void *ctx` — no std::function,
+// safe for kernel builds with -nostdinc):
+//   * RegRead/RegWrite  — MMIO to the D11 channel window. `ctx` is caller-provided.
+//   * DescRead/DescWrite — descriptor table memory (16 bytes/slot). `ctx` is caller-provided.
+//   * pollRx / reclaimTx callbacks receive `cbCtx` — caller-provided.
 // --------------------------------------------------------------------------
 
 #ifndef D11_hpp
@@ -37,7 +35,6 @@
 
 #include <cstdint>
 #include <cstddef>
-#include <functional>
 
 namespace bcm::d11 {
 
@@ -63,8 +60,13 @@ static constexpr uint32_t kTxCtlFrag    = 0x00040000u;
 static constexpr uint32_t kRxCtlOwn   = 0x80000000u; // always set by host
 static constexpr uint32_t kRxCtlWrap  = 0x10000000u; // slot == count-1
 
-using RegRead  = std::function<uint32_t(uint32_t offset)>;   // offset within channel window
-using RegWrite = std::function<void(uint32_t offset, uint32_t value)>;
+// Callback types with void *ctx (caller-provided context, typically `this`).
+using RegRead  = uint32_t (*)(void *ctx, uint32_t offset);          // offset within channel window
+using RegWrite = void (*)(void *ctx, uint32_t offset, uint32_t value);
+using DescWrite = void (*)(void *ctx, uint32_t idx, uint32_t ctl, uint32_t len, uint64_t addr);
+using DescReadCtl = uint32_t (*)(void *ctx, uint32_t idx);
+using DescReadLen = uint32_t (*)(void *ctx, uint32_t idx);
+using DescReadAddr = uint64_t (*)(void *ctx, uint32_t idx);
 
 // Result of an RX poll: a completed frame ready to be handed to net80211
 // via ieee80211_inputm.
@@ -84,16 +86,17 @@ struct TxDone {
 class RxRing {
 public:
     RxRing(uint16_t count,
+           void *ctx,
            RegRead rd, RegWrite wr,
-           std::function<void(uint32_t idx, uint32_t ctl, uint32_t len, uint64_t addr)> descWrite,
-           std::function<uint32_t(uint32_t idx)>               descReadCtl,
-           std::function<uint32_t(uint32_t idx)>               descReadLen,
-           std::function<uint64_t(uint32_t idx)>               descReadAddr)
-        : count_(count), rd_(std::move(rd)), wr_(std::move(wr)),
-          descWrite_(std::move(descWrite)),
-          descReadCtl_(std::move(descReadCtl)),
-          descReadLen_(std::move(descReadLen)),
-          descReadAddr_(std::move(descReadAddr)) {
+           DescWrite descWrite,
+           DescReadCtl descReadCtl,
+           DescReadLen descReadLen,
+           DescReadAddr descReadAddr)
+        : count_(count), ctx_(ctx), rd_(rd), wr_(wr),
+          descWrite_(descWrite),
+          descReadCtl_(descReadCtl),
+          descReadLen_(descReadLen),
+          descReadAddr_(descReadAddr) {
         prod_ = 0;
         cons_ = 0;
         posted_ = 0;
@@ -101,9 +104,9 @@ public:
 
     // Reset the RX channel: write RESET, poll DONE until reset clears.
     bool reset() {
-        wr_(kRegCtl, kCtlReset);
+        wr_(ctx_, kRegCtl, kCtlReset);
         for (int i = 0; i < 10000; i++) {
-            uint32_t v = rd_(kRegDone);
+            uint32_t v = rd_(ctx_, kRegDone);
             if ((v & 0xf0000000u) == 0x30000000u) {
                 cons_ = 0; prod_ = 0; posted_ = 0;
                 return true;
@@ -114,13 +117,13 @@ public:
 
     // Program the descriptor table base address and enable the channel.
     bool init(uint64_t tableBusAddr, uint32_t addrExtCtlBits) {
-        wr_(kRegBaseLo, (uint32_t)(tableBusAddr & 0xffffffffu));
-        wr_(kRegBaseHi, (uint32_t)(tableBusAddr >> 32));
-        uint32_t ctl = rd_(kRegCtl);
+        wr_(ctx_, kRegBaseLo, (uint32_t)(tableBusAddr & 0xffffffffu));
+        wr_(ctx_, kRegBaseHi, (uint32_t)(tableBusAddr >> 32));
+        uint32_t ctl = rd_(ctx_, kRegCtl);
         ctl &= 0xfffcffffu;
         ctl |= (addrExtCtlBits & 0x3u) << 16;
         ctl |= kCtlDmaEn;
-        wr_(kRegCtl, ctl);
+        wr_(ctx_, kRegCtl, ctl);
         tableBusAddr_ = tableBusAddr;
         cons_ = 0; prod_ = 0; posted_ = 0;
         return true;
@@ -136,9 +139,9 @@ public:
         uint32_t idx = (uint32_t)prod_ & (uint32_t)(count_ - 1);
         uint32_t ctl = kRxCtlOwn;
         if (idx == (uint32_t)(count_ - 1)) ctl |= kRxCtlWrap;
-        descWrite_(idx, ctl, bufSize, addr);
+        descWrite_(ctx_, idx, ctl, bufSize, addr);
         // producer reg = tableBusAddr + slot*16
-        wr_(kRegProd, (uint32_t)(tableBusAddr_ + (uint64_t)(prod_) * 16));
+        wr_(ctx_, kRegProd, (uint32_t)(tableBusAddr_ + (uint64_t)(prod_) * 16));
         prod_++;
         posted_++;
         return true;
@@ -147,17 +150,17 @@ public:
     // Poll for completed RX frames.  Reads HW consumer at kRegDone, walks
     // descriptors our consumer hasn't reclaimed yet, and invokes `cb` per
     // completed frame.  Each completed buffer is re-posted automatically.
-    void pollRx(std::function<void(const RxFrame &)> cb) {
-        uint32_t hwDone = rd_(kRegDone);
+    void pollRx(void *cbCtx, void (*cb)(void *cbCtx, const RxFrame &)) {
+        uint32_t hwDone = rd_(ctx_, kRegDone);
         uint64_t hwIdx = ((hwDone - (uint32_t)tableBusAddr_) >> 4) & (uint32_t)(count_ - 1);
         while (cons_ != hwIdx) {
             uint32_t idx = (uint32_t)cons_ & (uint32_t)(count_ - 1);
-            uint32_t ctl = descReadCtl_(idx);
+            uint32_t ctl = descReadCtl_(ctx_, idx);
             if (ctl & kRxCtlOwn) break; // HW still owns it
             RxFrame f;
-            f.addr = descReadAddr_(idx);
-            f.len  = descReadLen_(idx);
-            cb(f);
+            f.addr = descReadAddr_(ctx_, idx);
+            f.len  = descReadLen_(ctx_, idx);
+            cb(cbCtx, f);
             // re-arm this buffer
             postBuffer(f.addr, f.len);
             cons_++;
@@ -166,12 +169,13 @@ public:
 
 private:
     uint16_t count_;
+    void    *ctx_;
     RegRead rd_;
     RegWrite wr_;
-    std::function<void(uint32_t, uint32_t, uint32_t, uint64_t)> descWrite_;
-    std::function<uint32_t(uint32_t)> descReadCtl_;
-    std::function<uint32_t(uint32_t)> descReadLen_;
-    std::function<uint64_t(uint32_t)> descReadAddr_;
+    DescWrite descWrite_;
+    DescReadCtl descReadCtl_;
+    DescReadLen descReadLen_;
+    DescReadAddr descReadAddr_;
     uint64_t tableBusAddr_ {0};
     uint32_t prod_;
     uint32_t cons_;
@@ -183,24 +187,25 @@ private:
 class TxRing {
 public:
     TxRing(uint16_t count,
+           void *ctx,
            RegRead rd, RegWrite wr,
-           std::function<void(uint32_t idx, uint32_t ctl, uint32_t len, uint64_t addr)> descWrite,
-           std::function<uint32_t(uint32_t idx)>               descReadCtl,
-           std::function<uint32_t(uint32_t idx)>               descReadLen,
-           std::function<uint64_t(uint32_t idx)>               descReadAddr)
-        : count_(count), rd_(std::move(rd)), wr_(std::move(wr)),
-          descWrite_(std::move(descWrite)),
-          descReadCtl_(std::move(descReadCtl)),
-          descReadLen_(std::move(descReadLen)),
-          descReadAddr_(std::move(descReadAddr)) {
+           DescWrite descWrite,
+           DescReadCtl descReadCtl,
+           DescReadLen descReadLen,
+           DescReadAddr descReadAddr)
+        : count_(count), ctx_(ctx), rd_(rd), wr_(wr),
+          descWrite_(descWrite),
+          descReadCtl_(descReadCtl),
+          descReadLen_(descReadLen),
+          descReadAddr_(descReadAddr) {
         prod_ = 0;
         cons_ = 0;
     }
 
     bool reset() {
-        wr_(kRegCtl, kCtlReset);
+        wr_(ctx_, kRegCtl, kCtlReset);
         for (int i = 0; i < 10000; i++) {
-            uint32_t v = rd_(kRegDone);
+            uint32_t v = rd_(ctx_, kRegDone);
             if ((v & 0xf0000000u) == 0x30000000u) {
                 cons_ = 0; prod_ = 0;
                 return true;
@@ -210,13 +215,13 @@ public:
     }
 
     bool init(uint64_t tableBusAddr, uint32_t addrExtCtlBits) {
-        wr_(kRegBaseLo, (uint32_t)(tableBusAddr & 0xffffffffu));
-        wr_(kRegBaseHi, (uint32_t)(tableBusAddr >> 32));
-        uint32_t ctl = rd_(kRegCtl);
+        wr_(ctx_, kRegBaseLo, (uint32_t)(tableBusAddr & 0xffffffffu));
+        wr_(ctx_, kRegBaseHi, (uint32_t)(tableBusAddr >> 32));
+        uint32_t ctl = rd_(ctx_, kRegCtl);
         ctl &= 0xfffcffffu;
         ctl |= (addrExtCtlBits & 0x3u) << 16;
         // leave DMA_EN off until the first frame is enqueued
-        wr_(kRegCtl, ctl);
+        wr_(ctx_, kRegCtl, ctl);
         tableBusAddr_ = tableBusAddr;
         prod_ = 0; cons_ = 0;
         return true;
@@ -230,37 +235,38 @@ public:
         uint32_t idx = (uint32_t)prod_ & (uint32_t)(count_ - 1);
         uint32_t ctl = kTxCtlSingle;
         if (idx == (uint32_t)(count_ - 1)) ctl |= kTxCtlWrap;
-        descWrite_(idx, ctl, len, addr);
+        descWrite_(ctx_, idx, ctl, len, addr);
         prod_++;
-        wr_(kRegProd, (uint32_t)(tableBusAddr_ + (uint64_t)(prod_ - 1) * 16));
-        uint32_t c = rd_(kRegCtl);
+        wr_(ctx_, kRegProd, (uint32_t)(tableBusAddr_ + (uint64_t)(prod_ - 1) * 16));
+        uint32_t c = rd_(ctx_, kRegCtl);
         c |= kCtlDmaEn;
-        wr_(kRegCtl, c);
+        wr_(ctx_, kRegCtl, c);
         return true;
     }
 
     // Reclaim completed TX descriptors.
-    void reclaimTx(std::function<void(const TxDone &)> cb) {
-        uint32_t hwDone = rd_(kRegDone);
+    void reclaimTx(void *cbCtx, void (*cb)(void *cbCtx, const TxDone &)) {
+        uint32_t hwDone = rd_(ctx_, kRegDone);
         uint64_t hwIdx = ((hwDone - (uint32_t)tableBusAddr_) >> 4) & (uint32_t)(count_ - 1);
         while (cons_ != hwIdx) {
             uint32_t idx = (uint32_t)cons_ & (uint32_t)(count_ - 1);
-            uint32_t ctl = descReadCtl_(idx);
+            uint32_t ctl = descReadCtl_(ctx_, idx);
             if (ctl & kTxCtlFirst) break;
-            TxDone d{descReadAddr_(idx), descReadLen_(idx)};
-            cb(d);
+            TxDone d{descReadAddr_(ctx_, idx), descReadLen_(ctx_, idx)};
+            cb(cbCtx, d);
             cons_++;
         }
     }
 
 private:
     uint16_t count_;
+    void    *ctx_;
     RegRead rd_;
     RegWrite wr_;
-    std::function<void(uint32_t, uint32_t, uint32_t, uint64_t)> descWrite_;
-    std::function<uint32_t(uint32_t)> descReadCtl_;
-    std::function<uint32_t(uint32_t)> descReadLen_;
-    std::function<uint64_t(uint32_t)> descReadAddr_;
+    DescWrite descWrite_;
+    DescReadCtl descReadCtl_;
+    DescReadLen descReadLen_;
+    DescReadAddr descReadAddr_;
     uint64_t tableBusAddr_ {0};
     uint32_t prod_;
     uint32_t cons_;

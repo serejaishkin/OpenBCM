@@ -18,8 +18,6 @@
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <sys/kpi_mbuf.h>
-#include <memory>
-#include <functional>
 #include "D11.hpp"
 #include "ChipConfigurator.hpp"
 
@@ -59,7 +57,7 @@ private:
     uint32_t mFramePoolOffset {0};
     uint32_t mFrameSize {2048};
 
-    std::unique_ptr<D11::TxRing> mRing;
+    D11::TxRing *mRing {nullptr};
 
     uint16_t mProd {0};
     uint16_t mCons {0};
