@@ -10,7 +10,6 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/IOKitKeys.h>
-#include <libkern/OSString.h>
 
 // PCI device IDs handled by this driver.
 // These cover Broadcom Wi-Fi chips supported by the old Apple AirPortBrcmNIC /
