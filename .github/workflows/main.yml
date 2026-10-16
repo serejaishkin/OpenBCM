@@ -53,7 +53,7 @@ jobs:
           short_sha=$(git rev-parse --short HEAD)
           configuration=$(printf '%s' "$CONFIGURATION" | tr '[:lower:]' '[:upper:]')
           suffix="v$version-$configuration-alpha-$short_sha"
-          ditto -c -k --keepParent "$products/$PLATFORM/AirportItlwm.kext" "artifacts/AirportItlwm-$PLATFORM-$suffix.zip"
+          ditto -c -k --keepParent "$products/$PLATFORM/OpenBCM.kext" "artifacts/AirportItlwm-$PLATFORM-$suffix.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: AirportItlwm-${{ matrix.platform }}-${{ matrix.configuration }}
