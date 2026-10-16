@@ -51,6 +51,8 @@ struct bcm_node {
     struct ieee80211_node ni;
 };
 
+class ItlBcm;
+
 // Per-device soft context, embedded in ItlBcm. Mirrors the role of iwm_softc:
 // it owns the ieee80211com and the interface glue.
 struct bcm_softc {
@@ -65,6 +67,7 @@ struct bcm_softc {
     uint8_t  sc_scan_max_chan;// last channel to scan
     const char *sc_fwver;
     int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
+    ItlBcm *sc_driver;    // back-pointer to owning ItlBcm (set in attach)
 };
 
 class ItlBcm : public ItlHalService, ItlDriverInfo, ItlDriverController {
@@ -127,6 +130,7 @@ private:
     // Scan timer: fires periodically during a scan to hop channels.
     IOTimerEventSource *mScanTimer {nullptr};
     static void s_scan_timer(OSObject *target, IOTimerEventSource *sender);
+    static void s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan);
 
     bool init80211();
 };

@@ -33,7 +33,7 @@
 #ifndef D11_hpp
 #define D11_hpp
 
-#include <sys/types.h>
+#include <stdint.h>
 #include <stddef.h>
 
 namespace bcm::d11 {

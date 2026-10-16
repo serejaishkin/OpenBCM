@@ -86,9 +86,12 @@ static void s_pollRxCb(void *cbCtx, const D11::RxFrame &frame) {
     uint8_t chan = 0; // TODO: read current channel from PHY
 
     // Deliver via the caller-provided callback.
-    // The callback is stored in mPollCb during poll().
+    // The callback is stored in mPollCb/mPollCbCtx during poll().
     if (self->mPollCb) {
-        self->mPollCb(m, rssi, chan);
+        self->mPollCb(self->mPollCbCtx, m, rssi, chan);
+        self->mDelivered++;
+    } else {
+        mbuf_freem(m);
     }
 
     // Re-post this buffer for next reception.
@@ -98,7 +101,7 @@ static void s_pollRxCb(void *cbCtx, const D11::RxFrame &frame) {
 Dma64RxRing::
 Dma64RxRing(ChipConfigurator *cfg, uint16_t channel, uint16_t count, uint32_t bufSize)
     : mCfg(cfg), mChannel(channel), mCount(count), mBufSize(bufSize),
-      mRing(nullptr), mPollCb(nullptr) {
+      mRing(nullptr), mPollCb(nullptr), mPollCbCtx(nullptr), mDelivered(0) {
 }
 
 Dma64RxRing::
@@ -152,6 +155,7 @@ stop() {
     if (!mRunning) return;
     mRunning = false;
     mPollCb = nullptr;
+    mPollCbCtx = nullptr;
     if (mRing) {
         // Best-effort: clear DMA_EN
         mCfg->writeD11Reg(kD11RxCh0Base + kRegCtl, 0);
@@ -216,9 +220,10 @@ postAllBuffers() {
 }
 
 uint32_t Dma64RxRing::
-poll(Dma64RxCallback cb) {
+poll(void *cbCtx, Dma64RxCallback cb) {
     if (!mRunning || !mRing || !cb) return 0;
     mPollCb = cb;
+    mPollCbCtx = cbCtx;
     // Count delivered frames before/after.
     uint32_t before = mDelivered;
     mRing->pollRx(this, s_pollRxCb);

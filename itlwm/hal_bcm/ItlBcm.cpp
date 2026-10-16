@@ -74,20 +74,25 @@ bcm_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
     struct bcm_softc *sc = (struct bcm_softc *)ifp->if_softc;
     enum ieee80211_state ostate = ic->ic_state;
 
-    if (nstate == IEEE80211_S_SCAN)
-        sc->sc_scanning = true;
-    else if (ostate == IEEE80211_S_SCAN)
+    // Leaving SCAN: clear flag and chain to stock machine.
+    if (nstate != IEEE80211_S_SCAN && ostate == IEEE80211_S_SCAN) {
         sc->sc_scanning = false;
+        return sc->sc_newstate(ic, nstate, arg);
+    }
 
     // The driver owns the SCAN transition: net80211 hops channels by
     // re-entering this callback with nstate == IEEE80211_S_SCAN. Do not
-    // chain to the stock state machine while scanning.
+    // chain to the stock state machine while scanning. Only the first
+    // SCAN entry starts the timer-driven scan; SCAN->SCAN re-entries
+    // (net80211 channel hops) are ignored — our timer does the hopping.
     if (nstate == IEEE80211_S_SCAN) {
         ic->ic_state = IEEE80211_S_SCAN;
-        // TODO(Group B): tune the D11 radio to the current scan channel and
-        // enable the RX ring. Without D11 PHY/ucode this is a no-op.
-        XYLog("%s: entering SCAN state (ostate=%u)\n",
-              __FUNCTION__, (unsigned)ostate);
+        if (ostate != IEEE80211_S_SCAN) {
+            XYLog("%s: entering SCAN state (ostate=%u)\n",
+                  __FUNCTION__, (unsigned)ostate);
+            if (sc && sc->sc_driver)
+                sc->sc_driver->bcm_scan_start();
+        }
         return 0;
     }
     return sc->sc_newstate(ic, nstate, arg);
@@ -101,12 +106,9 @@ bcm_bgscan_start(struct ieee80211com *ic)
     // Host-driven scan (works with any firmware): the host sends probe
     // requests and receives beacons via the D11 dma64 RX ring, injecting
     // frames into net80211 via ieee80211_inputm().
-    sc->sc_scanning = true;
     XYLog("%s: background scan requested\n", __FUNCTION__);
-    // ItlBcm owns `ic` via get80211Controller(); the softc backpointer is
-    // recovered from ifp->if_softc above.  Start the scan state machine.
-    // (The timer is created on first enable(); if rings aren't up yet, scan
-    // will find nothing until they are.)
+    if (sc && sc->sc_driver)
+        sc->sc_driver->bcm_scan_start();
     return 0;
 }
 
@@ -129,7 +131,8 @@ static void
 bcm_start(struct _ifnet *ifp)
 {
     struct bcm_softc *sc = (struct bcm_softc *)ifp->if_softc;
-    sc->bcm_tx_start(ifp);
+    if (sc && sc->sc_driver)
+        sc->sc_driver->bcm_tx_start(ifp);
 }
 
 static void
@@ -266,6 +269,7 @@ attach(IOPCIDevice *device)
     XYLog("%s\n", __PRETTY_FUNCTION__);
 
     memset(&com, 0, sizeof(com));
+    com.sc_driver = this;
 
     if (!cfg.initWithDevice(device)) {
         XYLog("bcm: ChipConfigurator init failed\n");
@@ -560,6 +564,17 @@ s_scan_timer(OSObject *target, IOTimerEventSource *sender)
 }
 
 void ItlBcm::
+s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan)
+{
+    ItlBcm *self = static_cast<ItlBcm *>(ctx);
+    if (!self) {
+        mbuf_freem(m);
+        return;
+    }
+    self->bcm_rx_input(m, rssi, chan);
+}
+
+void ItlBcm::
 bcm_scan_start()
 {
     struct ieee80211com *ic = &com.sc_ic;
@@ -609,9 +624,7 @@ bcm_scan_next_channel()
 
     // 3. Poll RX ring for received beacons / probe responses.
     if (mRxRing) {
-        mRxRing->poll([this](mbuf_t m, int8_t rssi, uint8_t chan) {
-            bcm_rx_input(m, rssi, chan);
-        });
+        mRxRing->poll(this, ItlBcm::s_rxDeliver);
     }
 
     // 4. Advance to next channel or finish.

@@ -32,9 +32,9 @@
 #include "D11.hpp"
 #include "ChipConfigurator.hpp"
 
-// Callback type for RX frame delivery: (mbuf_t, rssi, chan).  The callee
-// takes ownership of the mbuf.
-using Dma64RxCallback = void (*)(mbuf_t, int8_t, uint8_t);
+// Callback type for RX frame delivery with caller context.
+// (mbuf_t, rssi, chan). The callee takes ownership of the mbuf.
+using Dma64RxCallback = void (*)(void *cbCtx, mbuf_t, int8_t, uint8_t);
 
 class Dma64RxRing {
 public:
@@ -49,8 +49,8 @@ public:
     void stop();                       // disable RX, release DMA
 
     // Poll for completed RX frames.  Returns the number delivered via `cb`.
-    // `cb` receives (mbuf_t, rssi, chan) and takes ownership of the mbuf.
-    uint32_t poll(Dma64RxCallback cb);
+    // `cb` receives (cbCtx, mbuf_t, rssi, chan) and takes ownership of the mbuf.
+    uint32_t poll(void *cbCtx, Dma64RxCallback cb);
 
     bool isRunning() const { return mRunning; }
 
@@ -85,6 +85,7 @@ private:
 
     // Scan callback set during poll(); invoked by s_pollRxCb per received frame.
     Dma64RxCallback mPollCb {nullptr};
+    void *mPollCbCtx {nullptr};
     uint32_t mDelivered {0};
 };
 
