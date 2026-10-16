@@ -30,7 +30,6 @@
 #include <IOKit/network/IOGatedOutputQueue.h>
 #include <IOKit/IOEventSource.h>
 #include <IOKit/IOTimerEventSource.h>
-#include <IOKit/IOFilterInterruptSource.h>
 #include <libkern/c++/OSString.h>
 #include <IOKit/IOService.h>
 #include <IOKit/pci/IOPCIDevice.h>
