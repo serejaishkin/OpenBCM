@@ -87,6 +87,44 @@ probe(IOService *provider, SInt32 *score)
     if (!isMatch && ItlBcm::bcm_match(device)) {
         isMatch = true;
         fHalService = new ItlBcm;
+        // Read per-device personality config from Info.plist personality dict.
+        ChipDeviceConfig devCfg {};
+        devCfg.deviceId = device->configRead16(kIOPCIConfigDeviceID);
+        OSString *fwFile = OSDynamicCast(OSString, device->getProperty("FirmwareFile"));
+        if (fwFile) {
+            char buf[64] = {0};
+            fwFile->getCString(buf, sizeof(buf));
+            strncpy(devCfg.firmwareResourceName, buf, sizeof(devCfg.firmwareResourceName) - 1);
+        }
+        OSNumber *chipNum = OSDynamicCast(OSNumber, device->getProperty("ChipNumber"));
+        if (chipNum) devCfg.chipNumber = (UInt32)chipNum->unsigned32BitValue();
+        OSNumber *chipRev = OSDynamicCast(OSNumber, device->getProperty("ChipRev"));
+        if (chipRev) devCfg.chipRev = (UInt32)chipRev->unsigned32BitValue();
+        OSString *chipType = OSDynamicCast(OSString, device->getProperty("ChipType"));
+        if (chipType) {
+            char buf[32] = {0};
+            chipType->getCString(buf, sizeof(buf));
+            if (strcmp(buf, "fullmac") == 0)
+                devCfg.chipType = ChipType::kFullmac;
+            else
+                devCfg.chipType = ChipType::kSoftmac;
+        }
+        OSString *fwSource = OSDynamicCast(OSString, device->getProperty("FirmwareSource"));
+        if (fwSource) {
+            char buf[32] = {0};
+            fwSource->getCString(buf, sizeof(buf));
+            if (strcmp(buf, "bundle") == 0)
+                devCfg.fwSource = FirmwareSource::kBundle;
+            else if (strcmp(buf, "filesystem") == 0)
+                devCfg.fwSource = FirmwareSource::kFilesystem;
+            else
+                devCfg.fwSource = FirmwareSource::kEmbedded;
+        }
+        OSNumber *d11Base = OSDynamicCast(OSNumber, device->getProperty("D11CoreBase"));
+        if (d11Base) devCfg.d11CoreBase = (UInt32)d11Base->unsigned32BitValue();
+        OSNumber *needsR4 = OSDynamicCast(OSNumber, device->getProperty("NeedsCortexR4"));
+        if (needsR4) devCfg.needsCortexR4 = needsR4->unsigned32BitValue() != 0;
+        ((ItlBcm *)fHalService)->setDeviceConfig(devCfg);
     }
 #endif
     if (isMatch) {

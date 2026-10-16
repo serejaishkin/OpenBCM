@@ -66,6 +66,23 @@ public:
     // per-chip fallback values such as the D11 core base).
     void setChipDescriptor(const ChipDescriptor *desc) { mDescriptor = desc; }
 
+    // Apply per-device personality overrides from Info.plist (VID/PID→firmware
+    // file, chip type, etc.). Called by ItlBcm::attach() before probe().
+    void setDeviceConfig(const ChipDeviceConfig &cfg);
+
+    // Firmware source selection: embedded array → kext bundle resource →
+    // filesystem. Set from personality dict; default kEmbedded.
+    void setFirmwareSource(FirmwareSource src) { mFwSource = src; }
+    FirmwareSource firmwareSource() const { return mFwSource; }
+
+    // Load firmware by name: tries embedded array first, then kext bundle
+    // resource (Firmware/<name>), then filesystem
+    // (/Library/Extensions/OpenBCM/Firmware/<name>). Returns const pointer
+    // (embedded or bundle resource, lifetime managed) or heap-allocated buffer
+    // for filesystem loads (caller must free). *len receives image length.
+    bool requestFirmwareByName(const char *name, const UInt8 **fw,
+                               IOByteCount *len);
+
     // Probed values (mirrors of BCMC's Configurator fields).
     UInt32 getChipId() const { return mChipId; }
     UInt32 getChipRevision() const { return mChipRev; }
@@ -103,6 +120,12 @@ private:
     // (`[ol+0x60]` == tcm_base in `_wlc_ol_up`).
     UInt32 tcmLoadBase() const;
 
+    // Firmware loading helpers
+    bool loadFirmwareEmbedded(const char *name, const UInt8 **fw, IOByteCount *len);
+    bool loadFirmwareBundle(const char *name, const UInt8 **fw, IOByteCount *len);
+    bool loadFirmwareFilesystem(const char *name, const UInt8 **fw, IOByteCount *len);
+    void freeFirmwareBuffer(const UInt8 *fw); // frees heap-allocated fs buffer
+
     // Numeric shared-info offsets live in SharedInfo.hpp (pure module, host-
     // testable via scripts/test_bringup.cpp); ChipConfigurator uses
     // shared_info::{blockOffset, readyOffset, fits, gapBytes} directly.
@@ -112,6 +135,7 @@ private:
     volatile UInt8 *mBar1 {nullptr};
     UInt32 mChipId {0};                // 0xb0 field
     UInt32 mChipRev {0};               // 0xb4 field
+    UInt32 mChipRevOverride {0xffffffff}; // personality override for chip rev
     UInt32 mInterconnect {0};          // 0xb8 field
     UInt32 mBackplaneCapabilities {0}; // 0xbc field
     UInt32 mBackplaneCapabilityData {0}; // 0xc0 field
@@ -123,10 +147,14 @@ private:
     UInt32 mTcmSize {0};
     UInt32 mD11CoreBase {0};   // backplane base of D11 core (0x840), 0 if unknown
     const ChipDescriptor *mDescriptor {nullptr};
+    ChipDeviceConfig mDeviceConfig {};      // personality overrides
+    FirmwareSource mFwSource {FirmwareSource::kEmbedded};
     dl_image::Info mDlimageInfo {};
     // Effective number of bytes memcpy'd into the TCM (`_wlc_ol_up` step 9 uses
     // the resource length, NOT the DBPP declared size which can exceed the TCM).
     UInt32 mFirmwareLength {0};
+    // Heap-allocated firmware buffer (filesystem loads); freed in destructor.
+    UInt8 *mFirmwareHeapBuf {nullptr};
 };
 
 #endif /* ChipConfigurator_hpp */

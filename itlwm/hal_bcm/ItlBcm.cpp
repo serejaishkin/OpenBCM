@@ -57,6 +57,13 @@ bcm_match(IOPCIDevice *device)
     }
 }
 
+void ItlBcm::
+setDeviceConfig(const ChipDeviceConfig &cfg)
+{
+    mDeviceConfig = cfg;
+    cfg.setDeviceConfig(cfg);
+}
+
 // ---------------------------------------------------------------------------
 // net80211 device callbacks (stubs for Group B)
 // ---------------------------------------------------------------------------
@@ -218,6 +225,40 @@ bcm_scan_end()
     ieee80211_end_scan(ifp);
 }
 
+// 5 GHz channel numbers of the BCM4360/43602/4350 (all dual-band parts).
+static const uint8_t kBcmChannels5GHz[] = {
+    36,40,44,48,52,56,60,64,
+    100,104,108,112,116,120,124,128,132,136,140,144,
+    149,153,157,161,165
+};
+
+// Fill ic_channels[] (freq + flags) so ieee80211_media_init() builds
+// ic_chan_avail and the scan list derives from net80211's regdomain view
+// instead of a hardcoded table. Mirrors iwn's EEPROM channel fill
+// (ItlIwn.cpp), except the per-board source on Broadcom is SROM/OTP/NVRAM
+// (readSROM() is still a stub) rather than the iwn EEPROM.
+static void
+bcm_setup_channels(struct ieee80211com *ic)
+{
+    int i;
+    for (i = 1; i <= 14; i++) {
+        ic->ic_channels[i].ic_freq =
+            ieee80211_ieee2mhz((u_int)i, IEEE80211_CHAN_2GHZ);
+        ic->ic_channels[i].ic_flags =
+            IEEE80211_CHAN_CCK | IEEE80211_CHAN_OFDM |
+            IEEE80211_CHAN_DYN | IEEE80211_CHAN_2GHZ |
+            IEEE80211_CHAN_HT;
+    }
+    for (i = 0; i < (int)sizeof(kBcmChannels5GHz); i++) {
+        uint8_t ch = kBcmChannels5GHz[i];
+        ic->ic_channels[ch].ic_freq =
+            ieee80211_ieee2mhz(ch, IEEE80211_CHAN_5GHZ);
+        ic->ic_channels[ch].ic_flags =
+            IEEE80211_CHAN_OFDM | IEEE80211_CHAN_5GHZ |
+            IEEE80211_CHAN_HT;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // net80211 attach
 // ---------------------------------------------------------------------------
@@ -255,6 +296,10 @@ init80211()
     ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
     ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
     ic->ic_sup_rates[IEEE80211_MODE_11G] = ieee80211_std_rateset_11g;
+
+    /* Channel table (freq + flags) for ieee80211_media_init() ->
+     * ic_chan_avail. Must run before if_attach/media_init below. */
+    bcm_setup_channels(ic);
 
     /* IBSS channel undefined for now. */
     ic->ic_ibss_chan = &ic->ic_channels[1];
@@ -300,6 +345,7 @@ attach(IOPCIDevice *device)
         XYLog("bcm: ChipConfigurator init failed\n");
         return false;
     }
+    cfg.setDeviceConfig(mDeviceConfig);
     if (!cfg.probe()) {
         XYLog("bcm: chip probe failed\n");
         return false;
@@ -663,19 +709,31 @@ bcm_scan_start()
 
     if (com.sc_scanning) return;
 
-    // Build the active channel list: honour the WCL-requested bitmap when
-    // the scan is restricted, otherwise visit every supported channel.
+    // Build the active channel list from net80211's regdomain view
+    // (ic_chan_avail, populated by ieee80211_media_init() from the
+    // ic_channels[] table above) instead of a hardcoded table, and honour
+    // the WCL-requested bitmap when the scan is restricted.
     com.sc_scan_count = 0;
     com.sc_scan_idx = 0;
-    for (uint32_t i = 0; i < kAllScanChannelCount &&
-         com.sc_scan_count < sizeof(com.sc_scan_list); i++) {
-        uint8_t ch = kAllScanChannels[i];
+    for (int ch = 1; ch <= IEEE80211_CHAN_MAX &&
+         com.sc_scan_count < (int)sizeof(com.sc_scan_list); ch++) {
+        if (!(ic->ic_chan_avail[ch / 8] & (1U << (ch % 8))))
+            continue;
         if (ic->ic_wcl_scan_restricted) {
             if (ch >= 256) continue;
             if (!(ic->ic_wcl_scan_channels[ch / 8] & (1U << (ch % 8))))
                 continue;
         }
-        com.sc_scan_list[com.sc_scan_count++] = ch;
+        com.sc_scan_list[com.sc_scan_count++] = (uint8_t)ch;
+    }
+    if (com.sc_scan_count == 0) {
+        // Defensive fallback: 2.4 GHz only, so a scan still attempts
+        // something if the channel table came up empty.
+        for (int ch = 1; ch <= 14 &&
+             com.sc_scan_count < (int)sizeof(com.sc_scan_list); ch++)
+            com.sc_scan_list[com.sc_scan_count++] = (uint8_t)ch;
+        XYLog("%s: ic_chan_avail empty, falling back to 2.4 GHz 1-14\n",
+              __FUNCTION__);
     }
     if (com.sc_scan_count == 0) {
         XYLog("%s: no usable channels (restricted scan selected none)\n",

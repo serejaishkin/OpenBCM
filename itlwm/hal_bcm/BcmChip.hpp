@@ -9,6 +9,8 @@
 #include <libkern/c++/OSObject.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/pci/IOPCIDevice.h>
+#include <IOKit/IOKitKeys.h>
+#include <libkern/OSString.h>
 
 // PCI device IDs handled by this driver.
 enum class ChipDeviceID : UInt16 {
@@ -47,6 +49,35 @@ enum class TransportType : UInt8 {
     kMmsgbuf   = 1,  // reserved
 };
 
+// Firmware source priority: embedded array → kext bundle resource → filesystem.
+enum class FirmwareSource : UInt8 {
+    kEmbedded = 0,   // compiled-in DlimageArrays (default)
+    kBundle   = 1,   // resource inside the kext bundle (Firmware/ dir)
+    kFilesystem = 2, // /Library/Extensions/OpenBCM/Firmware/<name>
+};
+
+// Softmac vs fullmac: softmac = host-driven D11 TX/RX (this project),
+// fullmac = firmware handles MAC/PHY, host only sends ioctls.
+enum class ChipType : UInt8 {
+    kSoftmac = 0,  // host-driven D11 SoftMAC (OpenBCM default)
+    kFullmac = 1,  // firmware owns data plane, host sends commands only
+};
+
+// Per-device override, sourced from Info.plist personality dictionaries.
+// When present, overrides the corresponding kBcmChipTable entry for this PCI
+// device id.
+struct ChipDeviceConfig {
+    UInt16   deviceId {0};          // PCI device id this config applies to
+    UInt32   chipNumber {0};        // override backplane chip id (0 = keep table)
+    UInt32   chipRev {0xffffffff};  // override chip revision (0xffffffff = keep table)
+    FirmwareSource fwSource {FirmwareSource::kEmbedded};
+    char     firmwareResourceName[64] {0}; // embedded name or bundle filename
+    TransportType transport {TransportType::kAppleCore};
+    ChipType chipType {ChipType::kSoftmac};
+    UInt32   d11CoreBase {0};       // override D11 core base (0 = keep table)
+    bool     needsCortexR4 {true};
+};
+
 struct ChipDescriptor {
     UInt16 deviceId;   // PCI device id
     UInt32 chipNumber; // backplane chip id
@@ -58,16 +89,33 @@ struct ChipDescriptor {
     // Filled by ChipConfigurator::probe() from the EROM table; hardcoded
     // fallback values below pending per-chip EROM validation.
     UInt32 d11CoreBase;
+    // Softmac vs fullmac: softmac = host-driven D11 SoftMAC (OpenBCM default),
+    // fullmac = firmware handles MAC/PHY, host only sends commands only.
+    ChipType chipType {ChipType::kSoftmac};
+
+    // Apply a per-device personality override on top of this table entry.
+    void applyOverride(const ChipDeviceConfig &cfg);
 };
 
 // All three run the same AppleCore `_wlc_ol_up` loader; the firmware resource
 // name is informational (the image is selected by chipNumber/rev via the
 // embedded arrays).
 static const ChipDescriptor kBcmChipTable[] = {
-    { 0x43a0, 0x00004360, TransportType::kAppleCore, "apple_4352pci_dlarray.bin",    0x00000000, true, 0x18004000 },
-    { 0x43ba, 0x0000aa52, TransportType::kAppleCore, "apple_43602pci_dlarray.bin",   0x00000000, true, 0x18004000 },
-    { 0x43a3, 0x00004350, TransportType::kAppleCore, "apple_4350pci_dlarray.bin",    0x40000000, true, 0x18004000 },
+    { 0x43a0, 0x00004360, TransportType::kAppleCore, "apple_4352pci_dlarray.bin",    0x00000000, true, 0x18004000, ChipType::kSoftmac },
+    { 0x43ba, 0x0000aa52, TransportType::kAppleCore, "apple_43602pci_dlarray.bin",   0x00000000, true, 0x18004000, ChipType::kSoftmac },
+    { 0x43a3, 0x00004350, TransportType::kAppleCore, "apple_4350pci_dlarray.bin",    0x40000000, true, 0x18004000, ChipType::kSoftmac },
 };
+
+inline void ChipDescriptor::applyOverride(const ChipDeviceConfig &cfg) {
+    if (cfg.chipNumber != 0) chipNumber = cfg.chipNumber;
+    // chipRev is read from hardware in ChipConfigurator::probe(); overrides
+    // are applied there via mChipRevOverride.
+    if (cfg.firmwareResourceName[0] != 0) firmwareResourceName = cfg.firmwareResourceName;
+    if (cfg.transport != TransportType::kAppleCore) transport = cfg.transport;
+    if (cfg.chipType != ChipType::kSoftmac) chipType = cfg.chipType;
+    if (cfg.d11CoreBase != 0) d11CoreBase = cfg.d11CoreBase;
+    if (cfg.needsCortexR4 != false) needsCortexR4 = cfg.needsCortexR4;
+}
 
 // Firmware IPC channel addresses exposed after download (shared memory hdr).
 struct FirmwareIPCAddresses {

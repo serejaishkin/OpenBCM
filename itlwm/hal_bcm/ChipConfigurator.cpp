@@ -12,7 +12,10 @@
 #include "ChipConfigurator.hpp"
 #include "EmbeddedFirmware.hpp"
 #include <IOKit/IOKitKeys.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <libkern/OSDebug.h>
+#include <libkern/OSBootArguments.h>
+#include <sys/stat.h>
 
 #define LOG_PREFIX "bcmp-configurator"
 
@@ -36,7 +39,20 @@ bool ChipConfigurator::initWithDevice(IOPCIDevice *device) {
 ChipConfigurator::~ChipConfigurator() {
     OSSafeReleaseNULL(mBar1Map);
     OSSafeReleaseNULL(mMap);
+    freeFirmwareBuffer(mFirmwareHeapBuf);
+    mFirmwareHeapBuf = nullptr;
 }
+
+void ChipConfigurator::
+setDeviceConfig(const ChipDeviceConfig &cfg) {
+    mDeviceConfig = cfg;
+    if (cfg.firmwareResourceName[0] != 0) {
+        if (mFwSource == FirmwareSource::kEmbedded)
+            mFwSource = FirmwareSource::kBundle;
+    }
+    if (cfg.chipRev != 0xffffffff)
+        mChipRevOverride = cfg.chipRev;
+
 
 bool ChipConfigurator::probe() {
     // Select the chip core via the sidebar (extended config space).
@@ -49,7 +65,9 @@ bool ChipConfigurator::probe() {
     }
     UInt32 chipIdWord = OSReadLittleInt32((void *)mMap->getVirtualAddress(), 0);
     mChipId = chipIdWord & 0xffff;
-    mChipRev = GET_BITFIELD(chipIdWord, 19, 16);
+    // Personality override takes precedence over silicon rev.
+    mChipRev = (mChipRevOverride != 0xffffffff) ? mChipRevOverride
+                                                : GET_BITFIELD(chipIdWord, 19, 16);
     mInterconnect = GET_BITFIELD(chipIdWord, 31, 28);
 
     IOLog("%s: chip id 0x%x rev 0x%x interconnect 0x%x\n",
@@ -345,6 +363,30 @@ bool ChipConfigurator::requestFirmware(const UInt8 **fw, IOByteCount *len, const
     mDlimageInfo = {};
     mFirmwareLength = 0;
 
+    // If the personality specified a firmware resource name, try loading it
+    // by name (embedded → bundle → filesystem) before falling back to the
+    // chip-number-based embedded lookup.
+    const char *fwName = mDeviceConfig.firmwareResourceName;
+    if (fwName && fwName[0] != 0) {
+        if (requestFirmwareByName(fwName, fw, len)) {
+            // Re-parse the loaded image for dl_image::Info.
+            uint32_t fallback = tcmBaseForChip(chip ? chip->chipNumber : mChipId);
+            if (!dl_image::parse(*fw, (size_t)*len, fallback, &mDlimageInfo) ||
+                !mDlimageInfo.valid) {
+                IOLog("%s: firmware '%s' is malformed\n", LOG_PREFIX, fwName);
+                return false;
+            }
+            mFirmwareLength = *len;
+            IOLog("%s: firmware '%s': %s declaredSize 0x%x bytes 0x%x load 0x%x\n",
+                  LOG_PREFIX, fwName,
+                  mDlimageInfo.container == dl_image::Container::kDbpp ? "DBPP" : "raw",
+                  mDlimageInfo.imageSize, mFirmwareLength, mDlimageInfo.loadAddress);
+            return true;
+        }
+        IOLog("%s: personality firmware '%s' not found, falling back to embedded\n",
+              LOG_PREFIX, fwName);
+    }
+
     UInt32 chipNumber = chip ? chip->chipNumber : mChipId;
     IOByteCount imageLen = 0;
     const UInt8 *image = bcmc_get_dlimage(chipNumber, mChipRev, &imageLen);
@@ -542,6 +584,125 @@ UInt32 ChipConfigurator::awaitFirmwareReady(UInt32 timeoutMs) {
     UInt32 v = *ready;
     IOLog("%s: firmware ready flag 0x%x after %u ms\n", LOG_PREFIX, v, waits);
     return v;
+}
+
+bool ChipConfigurator::
+loadFirmwareEmbedded(const char *name, const UInt8 **fw, IOByteCount *len)
+{
+    // Embedded arrays are selected by backplane chip number, not by name.
+    // We map the personality name to a chipNumber if possible.
+    UInt32 chipNumber = mDeviceConfig.chipNumber != 0
+                        ? mDeviceConfig.chipNumber : mChipId;
+    return bcmc_get_dlimage(chipNumber, mChipRev, len) != nullptr
+        ? ((*fw = bcmc_get_dlimage(chipNumber, mChipRev, len)) != nullptr)
+        : false;
+}
+
+bool ChipConfigurator::
+loadFirmwareBundle(const char *name, const UInt8 **fw, IOByteCount *len)
+{
+    // Load a firmware resource from the kext bundle (Firmware/<name>).
+    CFURLRef bundleURL = CFBundleCopyBundleURL(CFBundleGetMainBundle());
+    if (!bundleURL) return false;
+    CFURLRef resURL = CFBundleCopyResourceURL(bundleURL,
+        CFStringCreateWithCString(kCFAllocatorDefault, name,
+                                  kCFStringEncodingUTF8),
+        CFSTR("bin"), NULL);
+    CFRelease(bundleURL);
+    if (!resURL) return false;
+    CFDataRef data = CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault,
+        resURL, NULL, NULL, NULL, NULL);
+    CFRelease(resURL);
+    if (!data) return false;
+    CFIndex dataLen = CFDataGetLength(data);
+    const UInt8 *bytes = CFDataGetBytePtr(data);
+    // Copy into a heap buffer we own (CFData may be freed after this).
+    UInt8 *buf = (UInt8 *)IOMalloc(dataLen);
+    if (!buf) { CFRelease(data); return false; }
+    memcpy(buf, bytes, dataLen);
+    CFRelease(data);
+    *fw = buf;
+    *len = dataLen;
+    // Track for freeing later.
+    if (mFirmwareHeapBuf) IOFree(mFirmwareHeapBuf, mFirmwareLength);
+    mFirmwareHeapBuf = buf;
+    mFirmwareLength = dataLen;
+    return true;
+}
+
+bool ChipConfigurator::
+loadFirmwareFilesystem(const char *name, const UInt8 **fw, IOByteCount *len)
+{
+    // Try /Library/Extensions/OpenBCM/Firmware/<name> first, then
+    // /System/Library/Extensions/OpenBCM.kext/Contents/Resources/Firmware/<name>.
+    const char *paths[] = {
+        "/Library/Extensions/OpenBCM.kext/Contents/Resources/Firmware/",
+        "/Library/Extensions/OpenBCM/Firmware/",
+        NULL
+    };
+    for (int i = 0; paths[i]; i++) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s%s", paths[i], name);
+        FILE *f = fopen(path, "rb");
+        if (!f) continue;
+        fseek(f, 0, SEEK_END);
+        long flen = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (flen <= 0) { fclose(f); continue; }
+        UInt8 *buf = (UInt8 *)IOMalloc(flen);
+        if (!buf) { fclose(f); return false; }
+        size_t rd = fread(buf, 1, flen, f);
+        fclose(f);
+        if (rd != (size_t)flen) { IOFree(buf, flen); continue; }
+        *fw = buf;
+        *len = flen;
+        if (mFirmwareHeapBuf) IOFree(mFirmwareHeapBuf, mFirmwareLength);
+        mFirmwareHeapBuf = buf;
+        mFirmwareLength = flen;
+        return true;
+    }
+    return false;
+}
+
+void ChipConfigurator::
+freeFirmwareBuffer(const UInt8 *fw)
+{
+    if (fw && fw == mFirmwareHeapBuf) {
+        IOFree(mFirmwareHeapBuf, mFirmwareLength);
+        mFirmwareHeapBuf = nullptr;
+        mFirmwareLength = 0;
+    }
+}
+
+bool ChipConfigurator::
+requestFirmwareByName(const char *name, const UInt8 **fw, IOByteCount *len)
+{
+    if (!fw || !len || !name) return false;
+    *fw = nullptr;
+    *len = 0;
+
+    // Try embedded first (always available for known chips), then bundle,
+    // then filesystem.
+    if (loadFirmwareEmbedded(name, fw, len)) {
+        IOLog("%s: firmware '%s' loaded from embedded array (%u bytes)\n",
+              LOG_PREFIX, name, *len);
+        return true;
+    }
+    if (mFwSource != FirmwareSource::kEmbedded) {
+        if (loadFirmwareBundle(name, fw, len)) {
+            IOLog("%s: firmware '%s' loaded from kext bundle (%u bytes)\n",
+                  LOG_PREFIX, name, *len);
+            return true;
+        }
+        if (mFwSource == FirmwareSource::kFilesystem) {
+            if (loadFirmwareFilesystem(name, fw, len)) {
+                IOLog("%s: firmware '%s' loaded from filesystem (%u bytes)\n",
+                      LOG_PREFIX, name, *len);
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 UInt32 ChipConfigurator::awaitFirmware(UInt32 timeoutMs) {

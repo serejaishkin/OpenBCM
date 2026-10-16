@@ -120,6 +120,7 @@ public:
 
     // PCI match predicate used by IOPCIEDeviceWrapper::probe.
     static bool bcm_match(IOPCIDevice *device);
+    void setDeviceConfig(const ChipDeviceConfig &cfg);
 
     void releaseAll();
 
@@ -128,6 +129,7 @@ private:
     ChipConfigurator cfg;
     BcdcOlTransport ol;
     const ChipDescriptor *descriptor {nullptr};
+    ChipDeviceConfig mDeviceConfig {};   // personality overrides from Info.plist
 
     // Scan timer: fires periodically during a scan to hop channels.
     IOTimerEventSource *mScanTimer {nullptr};
