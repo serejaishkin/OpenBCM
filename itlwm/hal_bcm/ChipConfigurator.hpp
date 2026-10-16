@@ -155,6 +155,9 @@ private:
     UInt32 mFirmwareLength {0};
     // Heap-allocated firmware buffer (filesystem loads); freed in destructor.
     UInt8 *mFirmwareHeapBuf {nullptr};
+    // MAC address read from SROM/OTP during probe (6 bytes, or locally-administered
+    // fallback). Valid after successful readSROM().
+    UInt8 mScMacAddr[6] {0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
 };
 
 #endif /* ChipConfigurator_hpp */

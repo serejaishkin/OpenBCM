@@ -210,12 +210,51 @@ bool ChipConfigurator::findCoreAddresses(UInt32 word, UInt32 *baseOut, UInt32 *s
 
 bool ChipConfigurator::readSROM() {
     // SROM::identify() — check the SROM layout is readable. On BCMC this
-    // validates the OTP/SPROM fields; here we only ensure the OTP window is
-    // reachable so firmware download has a known NVRAM base.
-    // TODO(RE): decode SROM header fields used by downloadFirmware
-    // (nvram_size, nvram offset slide) — deferred to hardware bring-up.
-    IOLog("%s: readSROM: laying the SROM/OTP groundwork\n", LOG_PREFIX);
+    // validates the OTP/SPROM fields; here we read the MAC address from the
+    // SROM/OTP region so the interface can use a real hardware address
+    // instead of a locally-administered placeholder.
+    if (!mMap) {
+        IOLog("%s: readSROM: no BAR0 map\n", LOG_PREFIX);
+        return false;
+    }
+    volatile UInt8 *va = (volatile UInt8 *)mMap->getVirtualAddress();
+    if (!va) {
+        IOLog("%s: readSROM: no BAR0 VA\n", LOG_PREFIX);
+        return false;
+    }
+    // SROM/OTP MAC address is typically at offset 0x106 (43A0 family) or
+    // similar chipcommon offset. Read 6 bytes as candidate MAC; validate
+    // by checking it's not all-zeros/all-ffs/multicast.
+    UInt8 mac[6] = {0};
+    for (int i = 0; i < 6; i++) {
+        mac[i] = OSReadLittleInt8((void *)(va + 0x106 + i));
+    }
+    bool allZeros = true, allFFs = true;
+    for (int i = 0; i < 6; i++) {
+        if (mac[i] != 0) allZeros = false;
+        if (mac[i] != 0xff) allFFs = false;
+    }
+    bool multicast = (mac[0] & 0x01) != 0;
+    if (!allZeros && !allFFs && !multicast) {
+        memcpy(mScMacAddr, mac, 6);
+        IOLog("%s: readSROM: MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+              LOG_PREFIX, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        IOLog("%s: readSROM: no valid MAC in SROM, will use locally-administered\n",
+              LOG_PREFIX);
+        // Generate a locally-administered MAC from chip id
+        mScMacAddr[0] = 0x02; // locally administered
+        mScMacAddr[1] = 0x00;
+        mScMacAddr[2] = 0x00;
+        mScMacAddr[3] = (UInt8)(mChipId >> 8);
+        mScMacAddr[4] = (UInt8)(mChipId & 0xff);
+        mScMacAddr[5] = (UInt8)(mChipRev);
+    }
     return true;
+}
+
+UInt8 *ChipConfigurator::getMacAddress() {
+    return mScMacAddr;
 }
 
 bool ChipConfigurator::probeMemoryInfo() {
