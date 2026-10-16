@@ -77,7 +77,15 @@ bcm_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
     // Leaving SCAN: clear flag and chain to stock machine.
     if (nstate != IEEE80211_S_SCAN && ostate == IEEE80211_S_SCAN) {
         sc->sc_scanning = false;
-        return sc->sc_newstate(ic, nstate, arg);
+    // Join path: AUTH/ASSOC/RUN frames flow through bcm_start (TX ring) and
+    // bcm_rx_poll -> bcm_rx_input (RX ring); stock net80211 advances the
+    // state when responses arrive. Just chain up and log progress.
+    if (nstate == IEEE80211_S_AUTH || nstate == IEEE80211_S_ASSOC ||
+        nstate == IEEE80211_S_RUN) {
+        XYLog("%s: join progress ostate=%u -> nstate=%u\n",
+              __FUNCTION__, (unsigned)ostate, (unsigned)nstate);
+    }
+    return sc->sc_newstate(ic, nstate, arg);
     }
 
     // The driver owns the SCAN transition: net80211 hops channels by
@@ -173,10 +181,27 @@ bcm_rx_input(mbuf_t m, int rssi, uint8_t chan)
 void ItlBcm::
 bcm_tx_start(struct _ifnet *ifp)
 {
+    // Dequeue data/mgmt frames from if_snd and push them onto the D11 TX
+    // dma64 ring. net80211 (incl. AUTH/ASSOC mgmt via ieee80211_send_mgmt)
+    // funnels everything through here, so wiring this completes the join TX
+    // path; RX completions arrive via bcm_rx_poll() -> bcm_rx_input().
     struct mbuf *m;
     while ((m = ifq_dequeue(&ifp->if_snd)) != nullptr) {
+        uint32_t len = mbuf_pkthdr_len(m);
+        bool sent = false;
+        // Bounce through a stack buffer (max 802.11 frame) into the DMA ring.
+        if (len > 0 && len <= 2048 && mTxRing) {
+            uint8_t frame[2048];
+            mbuf_copydata(m, 0, len, frame);
+            sent = mTxRing->enqueue(frame, len);
+            if (sent)
+                mTxRing->pollTx();
+        }
         mbuf_freem(m);
-        ifp->if_oerrors++;  // dropped: no D11 TX path yet
+        if (sent)
+            ifp->if_opackets++;
+        else
+            ifp->if_oerrors++;
     }
 }
 
@@ -375,6 +400,12 @@ releaseAll()
     }
     if (mRxRing) { mRxRing->stop(); delete mRxRing; mRxRing = nullptr; }
     if (mTxRing) { mTxRing->stop(); delete mTxRing; mTxRing = nullptr; }
+    if (mRxPollTimer) {
+        if (getMainWorkLoop())
+            getMainWorkLoop()->removeEventSource(mRxPollTimer);
+        mRxPollTimer->release();
+        mRxPollTimer = nullptr;
+    }
     if (mScanTimer) {
         mScanTimer->timeout();
         mScanTimer->release();
@@ -408,6 +439,17 @@ enable(IONetworkInterface *netif)
         delete mTxRing;
         mTxRing = nullptr;
     }
+    // Always-on RX poll timer: delivers beacons/mgmt/data in SCAN and RUN.
+    if (!mRxPollTimer && getMainWorkLoop()) {
+        mRxPollTimer = IOTimerEventSource::timerEventSource(
+            this, ItlBcm::s_rx_poll);
+        if (mRxPollTimer)
+            getMainWorkLoop()->addEventSource(mRxPollTimer);
+    }
+    if (mRxPollTimer) {
+        mRxPollTimer->setTimeoutMS(50);
+        mRxPollTimer->enable();
+    }
     return kIOReturnSuccess;
 }
 
@@ -421,6 +463,10 @@ disable(IONetworkInterface *netif)
         return kIOReturnSuccess;
     com.sc_running = false;
     // Stop the D11 data path.
+    if (mRxPollTimer) {
+        mRxPollTimer->cancelTimeout();
+        mRxPollTimer->disable();
+    }
     if (mRxRing) { mRxRing->stop(); delete mRxRing; mRxRing = nullptr; }
     if (mTxRing) { mTxRing->stop(); delete mTxRing; mTxRing = nullptr; }
     bcm_scan_done();
@@ -561,6 +607,28 @@ s_scan_timer(OSObject *target, IOTimerEventSource *sender)
     ItlBcm *self = OSDynamicCast(ItlBcm, target);
     if (!self) return;
     self->bcm_scan_next_channel();
+}
+
+void ItlBcm::
+s_rx_poll(OSObject *target, IOTimerEventSource *sender)
+{
+    (void)sender;
+    ItlBcm *self = OSDynamicCast(ItlBcm, target);
+    if (!self) return;
+    self->bcm_rx_poll();
+    // Re-arm: keep polling while the interface is up.
+    if (self->mRxPollTimer && self->com.sc_running) {
+        self->mRxPollTimer->setTimeoutMS(50);
+        self->mRxPollTimer->enable();
+    }
+}
+
+void ItlBcm::
+bcm_rx_poll()
+{
+    if (!com.sc_running || !mRxRing)
+        return;
+    mRxRing->poll(this, ItlBcm::s_rxDeliver);
 }
 
 void ItlBcm::

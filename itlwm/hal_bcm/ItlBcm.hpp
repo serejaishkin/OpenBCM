@@ -105,7 +105,8 @@ public:
     // net80211 RX/TX plumbing (Group B). bcm_rx_input is the injection point
     // called by the D11 RX interrupt/poll path; bcm_tx_start dequeues if_snd.
     void bcm_rx_input(mbuf_t m, int rssi, uint8_t chan);
-    int bcm_tx_start(struct _ifnet *ifp);
+    void bcm_tx_start(struct _ifnet *ifp);
+    void bcm_rx_poll();   // drain RX ring -> bcm_rx_input (scan + RUN)
 
     // D11 dma64 rings (real IOKit DMA, constructed in enable()).
     Dma64RxRing *mRxRing {nullptr};
@@ -131,6 +132,9 @@ private:
     IOTimerEventSource *mScanTimer {nullptr};
     static void s_scan_timer(OSObject *target, IOTimerEventSource *sender);
     static void s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan);
+    // Always-on RX poll timer (50 ms): keeps data/mgmt flowing in RUN state.
+    IOTimerEventSource *mRxPollTimer {nullptr};
+    static void s_rx_poll(OSObject *target, IOTimerEventSource *sender);
 
     bool init80211();
 };
