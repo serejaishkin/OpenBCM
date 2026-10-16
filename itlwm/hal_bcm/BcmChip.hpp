@@ -12,34 +12,19 @@
 #include <IOKit/IOKitKeys.h>
 
 // PCI device IDs handled by this driver.
-// These cover Broadcom Wi-Fi chips supported by the old Apple AirPortBrcmNIC /
-// AppleBCMWLAN stack (Skywalk and pre-Skywalk). Only chips with embedded or
-// portable firmware are fully functional; others match but will need a
-// firmware resource added before they can bring up.
+// These correspond to Broadcom chips supported by AirPortBrcmNIC:
+// 4360/43602/4350 (fullmac, AppleCore olmsg) and BCM4352/4357/4358/4359/4365
+// (older fullmac parts, some may need separate firmware).
 enum class ChipDeviceID : UInt16 {
-    // BCM4360 family (PCI 14e4:43a0) - fullmac-ish, AppleCore olmsg
     kBCM4360   = 0x43a0,   // BCM4360  (BCM94360CS/CS2/CD/HMB, MBA/MBP 2013-2015)
-    // BCM43602 family (PCI 14e4:43ba) - fullmac-ish, AppleCore olmsg
     kBCM43602  = 0x43ba,   // BCM43602 (BCM943602CS/CDP/BAED, DW1830)
-    // BCM4350 family (PCI 14e4:43a3) - msgbuf-ish
     kBCM4350   = 0x43a3,   // BCM4350  (BCM94350ZAE, DW1820A)
-    // Other Broadcom Wi-Fi chips supported by AppleBCMWLAN but not yet wired
-    // up with their own firmware image. They match here and will use a
-    // fallback firmware resource or fail gracefully.
     kBCM4352   = 0x4352,   // BCM4352  (BCM94352ZAE)
     kBCM4357   = 0x4357,   // BCM4357
     kBCM4358   = 0x4358,   // BCM4358
     kBCM4359   = 0x4359,   // BCM4359
     kBCM4365   = 0x4365,   // BCM4365
     kBCM4356   = 0x4356,   // BCM4356
-    kBCM43224  = 0x43224,  // BCM43224
-    kBCM43225  = 0x43225,  // BCM43225
-    kBCM43227  = 0x43227,  // BCM43227
-    kBCM43228  = 0x43228,  // BCM43228
-    kBCM43236  = 0x43236,  // BCM43236
-    kBCM43237  = 0x43237,  // BCM43237
-    kBCM43238  = 0x43238,  // BCM43238
-    kBCM43239  = 0x43239,  // BCM43239
 };
 
 // Internal chip ids reported by the backplane (raw chipcommon CHIPID register).
@@ -127,22 +112,13 @@ static const ChipDescriptor kBcmChipTable[] = {
     { 0x43a0, 0x00004360, TransportType::kAppleCore, "apple_4352pci_dlarray.bin",    0x00000000, true, 0x18004000, ChipType::kSoftmac },
     { 0x43ba, 0x0000aa52, TransportType::kAppleCore, "apple_43602pci_dlarray.bin",   0x00000000, true, 0x18004000, ChipType::kSoftmac },
     { 0x43a3, 0x00004350, TransportType::kAppleCore, "apple_4350pci_dlarray.bin",    0x40000000, true, 0x18004000, ChipType::kSoftmac },
-    // Other Broadcom chips: no embedded firmware yet, will try bundle or
-    // filesystem path. Chip type is softmac unless the chip is known fullmac.
+    // Other chips: transport/firmware to be determined per personality config.
     { 0x4352, 0x00004352, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
     { 0x4357, 0x00004357, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
     { 0x4358, 0x00004358, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
     { 0x4359, 0x00004359, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
     { 0x4365, 0x00004365, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
     { 0x4356, 0x00004356, TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43224,0x000043224,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43225,0x000043225,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43227,0x000043227,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43228,0x000043228,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43236,0x000043236,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43237,0x000043237,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43238,0x000043238,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
-    { 0x43239,0x000043239,TransportType::kAppleCore, nullptr,    0x00000000, false, 0x0, ChipType::kSoftmac },
 };
 
 inline void ChipDescriptor::applyOverride(const ChipDeviceConfig &cfg) {
