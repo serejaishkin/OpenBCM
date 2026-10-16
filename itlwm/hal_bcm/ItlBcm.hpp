@@ -4,19 +4,20 @@
  * by IOPCIEDeviceWrapper for Broadcom PCIe IDs and handed to AirportItlwm as
  * its ItlHalService.
  *
- * Control plane: AppleCore `_wlc_ol_up` BCDC/olmsg bring-up (ChipConfigurator +
- * BcdcOlTransport, ported from the standalone AppleBCMWLANCompanion project).
- * Network glue: the very same net80211 (itl80211/openbsd) the AirportItlwm
- * skywalk/WCL layer already speaks.
+ * Control plane: WLC/BCDC via olmsg (ChipConfigurator + BcdcOlTransport).
+ * The host sends WLC ioctl/iovar commands (escan, join, set_ssid,
+ * set_wsec_pmk, ...) over olmsg and parses D2H events (ESCAN_RESULT,
+ * PSK_SUP, LINK, ...). The ARM dlimage/firmware owns the radio: channel
+ * hopping, beacon reception, authentication, association.
  *
  * Data plane: host-driven D11 SoftMAC `dma64` TX/RX rings (Dma64RxRing /
- * Dma64TxRing).  The host drives the radio directly, so scanning works with
- * *any* firmware (Linux/OpenBCD/whatever) — we send probe requests ourselves
- * and receive beacons via the RX ring, injecting them into net80211 via
- * ieee80211_inputm().
+ * Dma64TxRing). Used for data frames and, optionally, for passive scan
+ * when firmware-driven scan is not available.
  *
- * STATUS: bring-up + net80211 attach + D11 RX/TX rings implemented; scan
- * state machine + PHY channel switching pending per-chip RE.
+ * STATUS: bring-up + net80211 attach + D11 RX/TX rings implemented; WLC
+ * control plane (escan/join/set_ssid/set_wsec_pmk) via olmsg implemented;
+ * PHY channel switching still relies on firmware (host cannot program D11
+ * PHY registers without reverse-engineered register map).
  */
 
 #ifndef ItlBcm_hpp
@@ -29,13 +30,13 @@
 #include <IOKit/network/IOGatedOutputQueue.h>
 #include <IOKit/IOEventSource.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOFilterInterruptSource.h>
 #include <libkern/c++/OSString.h>
 #include <IOKit/IOService.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/IOLib.h>
 #include <libkern/OSKextLib.h>
 #include <libkern/c++/OSMetaClass.h>
-#include <IOKit/IOFilterInterruptEventSource.h>
 
 #include <HAL/ItlHalService.hpp>
 #include <HAL/ItlDriverInfo.hpp>
@@ -46,6 +47,7 @@
 #include "D11.hpp"
 #include "Dma64RxRing.hpp"
 #include "Dma64TxRing.hpp"
+#include "WlcDefs.hpp"
 
 struct bcm_node {
     struct ieee80211_node ni;
@@ -63,9 +65,6 @@ struct bcm_softc {
     bool sc_attached;
     bool sc_running;
     bool sc_scanning;     // a net80211 scan (fg or bg) is in progress
-    uint8_t  sc_scan_list[64]; // active scan channel list (built at start)
-    uint8_t  sc_scan_count;    // entries in sc_scan_list
-    uint8_t  sc_scan_idx;      // next channel index to visit
     const char *sc_fwver;
     int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
     ItlBcm *sc_driver;    // back-pointer to owning ItlBcm (set in attach)
@@ -109,14 +108,27 @@ public:
     void bcm_tx_start(struct _ifnet *ifp);
     void bcm_rx_poll();   // drain RX ring -> bcm_rx_input (scan + RUN)
 
+    // WLC/BCDC control plane via olmsg (Group B).
+    void bcm_wlc_send_ioctl(uint32_t cmd, const void *buf, UInt32 len);
+    void bcm_wlc_send_iovar_set(const char *name, const void *buf, UInt32 len);
+    void bcm_wlc_scan_channels(const uint8_t *channels, uint32_t count);
+    void bcm_wlc_join(const char *ssid, uint32_t ssid_len, const UInt8 *bssid);
+    void bcm_wlc_poll_d2h();   // drain olmsg RX and process WLC events
+    void bcm_wlc_d2h_msg(const OlControlMessage *msg);  // parse one D2H message
+    void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,
+                             uint32_t ssid_len, int8_t rssi); // inject scan result
+
     // D11 dma64 rings (real IOKit DMA, constructed in enable()).
     Dma64RxRing *mRxRing {nullptr};
     Dma64TxRing *mTxRing {nullptr};
 
-    // Scan state machine (host-driven, works with any firmware).
-    void bcm_scan_start();                     // called from bcm_bgscan_start
-    void bcm_scan_next_channel();              // hop + probe + poll RX
-    void bcm_scan_done();                      // ieee80211_end_scan + cleanup
+    // WLC scan state (firmware-driven).
+    bool mWlcScanActive {false};
+    UInt32 mWlcScanSeq {0};
+    UInt8 mWlcScanSsid[32] {0};
+    UInt8 mWlcScanSsidLen {0};
+    UInt8 mWlcScanBssid[6] {0};
+    bool mWlcScanBssidSet {false};
 
     // PCI match predicate used by IOPCIEDeviceWrapper::probe.
     static bool bcm_match(IOPCIDevice *device);
@@ -131,13 +143,16 @@ private:
     const ChipDescriptor *descriptor {nullptr};
     ChipDeviceConfig mDeviceConfig {};   // personality overrides from Info.plist
 
-    // Scan timer: fires periodically during a scan to hop channels.
-    IOTimerEventSource *mScanTimer {nullptr};
-    static void s_scan_timer(OSObject *target, IOTimerEventSource *sender);
-    static void s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan);
-    // Always-on RX poll timer (50 ms): keeps data/mgmt flowing in RUN state.
+    // WLC/olmsg D2H poll timer: fires periodically during scan to read
+    // escan results and other firmware events.
+    IOTimerEventSource *mWlcPollTimer {nullptr};
+    static void s_wlc_poll_timer(OSObject *target, IOTimerEventSource *sender);
+    static void s_wlc_d2h_sink(void *ctx, const OlControlMessage *msg);
+
+    // D11 RX poll timer (50 ms): keeps data/mgmt flowing in RUN state.
     IOTimerEventSource *mRxPollTimer {nullptr};
     static void s_rx_poll(OSObject *target, IOTimerEventSource *sender);
+    static void s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan);
 
     bool init80211();
 };
