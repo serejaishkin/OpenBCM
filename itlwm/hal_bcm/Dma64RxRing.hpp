@@ -30,6 +30,7 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <sys/kpi_mbuf.h>
 #include "D11.hpp"
+#include "D11Phy.hpp"
 #include "ChipConfigurator.hpp"
 
 // Callback type for RX frame delivery with caller context.
@@ -40,7 +41,10 @@ class Dma64RxRing {
 public:
     // `cfg` provides BAR0 MMIO + D11 core base.  `channel` selects which D11
     // DMA channel (0 = RX paired with TX0; on 4360 only ch0 RX exists).
-    Dma64RxRing(ChipConfigurator *cfg, uint16_t channel = 0, uint16_t count = 64,
+    // `phyBase` is the D11 PHY register block offset within the core window
+    // (see D11Phy::kD11PhyBaseOffset).
+    Dma64RxRing(ChipConfigurator *cfg, uint32_t phyBase,
+                uint16_t channel = 0, uint16_t count = 64,
                 uint32_t bufSize = 2048);
 
     ~Dma64RxRing();
@@ -64,6 +68,7 @@ private:
     uint16_t mChannel {0};
     uint16_t mCount {0};
     uint32_t mBufSize {0};
+    uint32_t mPhyBase {0};       // D11 PHY block offset within core window
 
     // DMA backing store: descriptor table (count*16) + count RX buffers.
     IOBufferMemoryDescriptor *mDmaBuf {nullptr};
@@ -75,6 +80,7 @@ private:
     uint64_t mTableBusAddr {0};     // bus address of descriptor table
 
     D11::RxRing *mRing {nullptr};
+    D11::Phy    *mPhy  {nullptr};   // D11 PHY (channel switch, RSSI)
 
     uint16_t mProd {0};
     uint16_t mCons {0};
@@ -84,11 +90,11 @@ private:
     // net80211 per frame until the D11 rxh/PHY channel field is decoded.
     uint8_t mCurrentChan {0};
 public:
-    void setCurrentChan(uint8_t chan) { mCurrentChan = chan; }
+    void setCurrentChan(uint8_t chan);
     uint8_t currentChan() const { return mCurrentChan; }
 private:
 
-    // RSSI read from PHY (stub until PHY regs are decoded).
+    // RSSI read from D11 PHY (placeholder until real PHY regs decoded).
     int8_t readRssi();
 
     // Scan callback set during poll(); invoked by s_pollRxCb per received frame.

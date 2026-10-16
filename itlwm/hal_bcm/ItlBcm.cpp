@@ -820,7 +820,10 @@ enable(IONetworkInterface *netif)
 
     // Start the D11 data path: RX ring (receive beacons/data) + TX ring
     // (probe requests/data frames).
-    mRxRing = new Dma64RxRing(&cfg, 0, 64, 2048);
+    uint32_t d11CoreBase = cfg.getD11CoreBase() ? cfg.getD11CoreBase() : 0;
+    uint32_t phyBase = d11CoreBase + D11::kD11PhyBaseOffset;
+
+    mRxRing = new Dma64RxRing(&cfg, phyBase, 0, 64, 2048);
     if (!mRxRing->init()) {
         XYLog("bcm: RX ring init failed\n");
         delete mRxRing;

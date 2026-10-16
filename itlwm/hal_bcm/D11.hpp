@@ -36,7 +36,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-namespace bcm::d11 {
+namespace bcm {
+namespace d11 {
 
 // Per-channel register offsets (within the channel's 0x40 window).
 static constexpr uint32_t kRegCtl    = 0x00; // DMA_EN bit0, RESET bit1
@@ -161,9 +162,10 @@ public:
             f.addr = descReadAddr_(ctx_, idx);
             f.len  = descReadLen_(ctx_, idx);
             cb(cbCtx, f);
-            // re-arm this buffer
-            postBuffer(f.addr, f.len);
+            // re-arm this buffer (cons_ must be incremented first so
+            // postBuffer's fullness check sees the freed slot).
             cons_++;
+            postBuffer(f.addr, f.len);
         }
     }
 
@@ -272,6 +274,7 @@ private:
     uint32_t cons_;
 };
 
-} // namespace bcm::d11
+} // namespace d11
+} // namespace bcm
 
 #endif /* D11_hpp */

@@ -99,14 +99,37 @@ static void s_pollRxCb(void *cbCtx, const D11::RxFrame &frame) {
 }
 
 Dma64RxRing::
-Dma64RxRing(ChipConfigurator *cfg, uint16_t channel, uint16_t count, uint32_t bufSize)
-    : mCfg(cfg), mChannel(channel), mCount(count), mBufSize(bufSize),
-      mRing(nullptr), mPollCb(nullptr), mPollCbCtx(nullptr), mDelivered(0) {
+Dma64RxRing(ChipConfigurator *cfg, uint32_t phyBase, uint16_t channel, uint16_t count, uint32_t bufSize)
+    : mCfg(cfg), mChannel(channel), mCount(count), mBufSize(bufSize), mPhyBase(phyBase),
+      mRing(nullptr), mPhy(nullptr), mPollCb(nullptr), mPollCbCtx(nullptr), mDelivered(0) {
+    // Create the D11 PHY object with callbacks that add the PHY block offset.
+    mPhy = new D11::Phy(phyBase, this,
+                        s_phyRegRead, s_phyRegWrite);
+}
+
+// ---- PHY register callbacks (ctx == this) ----
+
+static uint32_t s_phyRegRead(void *ctx, uint32_t off) {
+    Dma64RxRing *self = static_cast<Dma64RxRing *>(ctx);
+    return self->mCfg->readD11Reg(self->mPhyBase + off);
+}
+
+static void s_phyRegWrite(void *ctx, uint32_t off, uint32_t val) {
+    Dma64RxRing *self = static_cast<Dma64RxRing *>(ctx);
+    self->mCfg->writeD11Reg(self->mPhyBase + off, val);
 }
 
 Dma64RxRing::
 ~Dma64RxRing() {
     stop();
+}
+
+void Dma64RxRing::
+setCurrentChan(uint8_t chan) {
+    mCurrentChan = chan;
+    if (mPhy) {
+        mPhy->setChannel(chan);
+    }
 }
 
 bool Dma64RxRing::
@@ -141,6 +164,12 @@ init() {
         return false;
     }
 
+    // Initialize the D11 PHY (placeholder register table).
+    if (mPhy && !mPhy->initPhy()) {
+        IOLog("%s: PHY init failed\n", LOG_PREFIX);
+        return false;
+    }
+
     // Post all RX buffers.
     postAllBuffers();
 
@@ -161,6 +190,10 @@ stop() {
         mCfg->writeD11Reg(kD11RxCh0Base + kRegCtl, 0);
         delete mRing;
         mRing = nullptr;
+    }
+    if (mPhy) {
+        delete mPhy;
+        mPhy = nullptr;
     }
     if (mDmaBuf) {
         mDmaBuf->release();
@@ -232,6 +265,9 @@ poll(void *cbCtx, Dma64RxCallback cb) {
 
 int8_t Dma64RxRing::
 readRssi() {
+    if (mPhy) {
+        return mPhy->readRssi();
+    }
     // TODO(RE): decode RSSI from D11 PHY/rxh registers.
     return -50;
 }
