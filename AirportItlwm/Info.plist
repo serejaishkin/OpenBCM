@@ -23,7 +23,7 @@
 		<key>itlwm</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.zxystd.AirportItlwm</string>
+			<string>com.serejaishkin.OpenBCM</string>
 			<key>IOClass</key>
 			<string>AirportItlwm</string>
 			<key>IOMatchCategory</key>

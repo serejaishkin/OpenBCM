@@ -3793,9 +3793,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3824,9 +3824,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3854,9 +3854,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3884,9 +3884,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3914,9 +3914,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3944,9 +3944,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -3987,9 +3987,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4018,9 +4018,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4051,9 +4051,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4084,9 +4084,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4115,9 +4115,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4146,9 +4146,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4177,9 +4177,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4208,9 +4208,9 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4239,10 +4239,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4271,10 +4271,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4306,10 +4306,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4341,10 +4341,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4376,10 +4376,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.15;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};
@@ -4411,10 +4411,10 @@
 					"$(PROJECT_DIR)/MacKernelSDK/Library/x86_64",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MODULE_NAME = com.zxystd.AirportItlwm;
-				PRODUCT_BUNDLE_IDENTIFIER = com.zxystd.AirportItlwm;
+				MODULE_NAME = com.serejaishkin.OpenBCM;
+				PRODUCT_BUNDLE_IDENTIFIER = com.serejaishkin.OpenBCM;
 				PRODUCT_MODULE_NAME = AirportItlwm;
-				PRODUCT_NAME = AirportItlwm;
+				PRODUCT_NAME = OpenBCM;
 				SYSTEM_HEADER_SEARCH_PATHS = "itl80211/openbsd itl80211 include";
 				WRAPPER_EXTENSION = kext;
 			};

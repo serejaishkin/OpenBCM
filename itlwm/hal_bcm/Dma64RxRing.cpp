@@ -83,7 +83,7 @@ static void s_pollRxCb(void *cbCtx, const D11::RxFrame &frame) {
     mbuf_pkthdr_setlen(m, frame.len);
 
     int8_t rssi = self->readRssi();
-    uint8_t chan = 0; // TODO: read current channel from PHY
+    uint8_t chan = self->currentChan();
 
     // Deliver via the caller-provided callback.
     // The callback is stored in mPollCb/mPollCbCtx during poll().

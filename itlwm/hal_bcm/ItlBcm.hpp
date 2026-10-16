@@ -63,8 +63,9 @@ struct bcm_softc {
     bool sc_attached;
     bool sc_running;
     bool sc_scanning;     // a net80211 scan (fg or bg) is in progress
-    uint8_t  sc_scan_chan;    // current scan channel (1..14)
-    uint8_t  sc_scan_max_chan;// last channel to scan
+    uint8_t  sc_scan_list[64]; // active scan channel list (built at start)
+    uint8_t  sc_scan_count;    // entries in sc_scan_list
+    uint8_t  sc_scan_idx;      // next channel index to visit
     const char *sc_fwver;
     int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
     ItlBcm *sc_driver;    // back-pointer to owning ItlBcm (set in attach)

@@ -80,6 +80,14 @@ private:
     uint16_t mCons {0};
     bool mRunning {false};
 
+    // Current radio channel (set by ItlBcm before poll()); reported to
+    // net80211 per frame until the D11 rxh/PHY channel field is decoded.
+    uint8_t mCurrentChan {0};
+public:
+    void setCurrentChan(uint8_t chan) { mCurrentChan = chan; }
+    uint8_t currentChan() const { return mCurrentChan; }
+private:
+
     // RSSI read from PHY (stub until PHY regs are decoded).
     int8_t readRssi();
 

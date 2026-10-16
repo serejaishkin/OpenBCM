@@ -571,10 +571,14 @@ setMulticastList(IOEthernetAddress *addr, int count)
 // injects frames into net80211 via ieee80211_inputm().
 // ---------------------------------------------------------------------------
 
-// 2.4 GHz channel list (scan all).
-static const uint8_t kScanChannels[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14};
-static constexpr uint32_t kScanChannelCount =
-    sizeof(kScanChannels) / sizeof(kScanChannels[0]);
+// Full scan channel table: 2.4 GHz 1-14 + 5 GHz UNII-1/2/2e/3.
+static const uint8_t kAllScanChannels[] = {
+    1,2,3,4,5,6,7,8,9,10,11,12,13,14,
+    36,40,44,48,52,56,60,64,100,104,108,112,116,120,124,128,132,136,140,144,
+    149,153,157,161,165
+};
+static constexpr uint32_t kAllScanChannelCount =
+    sizeof(kAllScanChannels) / sizeof(kAllScanChannels[0]);
 
 // Minimal 802.11 Probe Request frame (broadcast SSID).
 struct ProbeReqFrame {
@@ -628,6 +632,15 @@ bcm_rx_poll()
 {
     if (!com.sc_running || !mRxRing)
         return;
+    if (com.sc_scanning && com.sc_scan_count > 0) {
+        uint8_t idx = com.sc_scan_idx > 0 ? com.sc_scan_idx - 1 : 0;
+        if (idx < com.sc_scan_count)
+            mRxRing->setCurrentChan(com.sc_scan_list[idx]);
+        else
+            mRxRing->setCurrentChan(0);
+    } else {
+        mRxRing->setCurrentChan(0);
+    }
     mRxRing->poll(this, ItlBcm::s_rxDeliver);
 }
 
@@ -649,9 +662,27 @@ bcm_scan_start()
     struct _ifnet *ifp = IC2IFP(ic);
 
     if (com.sc_scanning) return;
+
+    // Build the active channel list: honour the WCL-requested bitmap when
+    // the scan is restricted, otherwise visit every supported channel.
+    com.sc_scan_count = 0;
+    com.sc_scan_idx = 0;
+    for (uint32_t i = 0; i < kAllScanChannelCount &&
+         com.sc_scan_count < sizeof(com.sc_scan_list); i++) {
+        uint8_t ch = kAllScanChannels[i];
+        if (ic->ic_wcl_scan_restricted) {
+            if (ch >= 256) continue;
+            if (!(ic->ic_wcl_scan_channels[ch / 8] & (1U << (ch % 8))))
+                continue;
+        }
+        com.sc_scan_list[com.sc_scan_count++] = ch;
+    }
+    if (com.sc_scan_count == 0) {
+        XYLog("%s: no usable channels (restricted scan selected none)\n",
+              __FUNCTION__);
+        return;
+    }
     com.sc_scanning = true;
-    com.sc_scan_chan = kScanChannels[0];
-    com.sc_scan_max_chan = kScanChannels[kScanChannelCount - 1];
 
     // Create scan timer on the main workloop.
     if (!mScanTimer && getMainWorkLoop()) {
@@ -665,8 +696,8 @@ bcm_scan_start()
         mScanTimer->setTimeoutMS(100); // 100 ms per channel
         mScanTimer->enable();
     }
-    XYLog("%s: scan started (channel %u)\n",
-          __FUNCTION__, com.sc_scan_chan);
+    XYLog("%s: scan started (%u channels)\n",
+          __FUNCTION__, com.sc_scan_count);
 }
 
 void ItlBcm::
@@ -676,11 +707,18 @@ bcm_scan_next_channel()
     struct _ifnet *ifp = IC2IFP(ic);
 
     if (!com.sc_scanning) return;
+    if (com.sc_scan_idx >= com.sc_scan_count) {
+        bcm_scan_done();
+        return;
+    }
+    uint8_t chan = com.sc_scan_list[com.sc_scan_idx];
 
     // 1. Switch D11 radio to current channel (PHY RE stub — no-op until
     //    register map is decoded).
-    XYLog("%s: channel %u (PHY switch TBD)\n",
-          __FUNCTION__, com.sc_scan_chan);
+    XYLog("%s: channel %u (%u/%u, PHY switch TBD)\n",
+          __FUNCTION__, chan, com.sc_scan_idx + 1, com.sc_scan_count);
+    if (mRxRing)
+        mRxRing->setCurrentChan(chan);
 
     // 2. Send probe request on current channel.
     if (mTxRing) {
@@ -696,18 +734,8 @@ bcm_scan_next_channel()
     }
 
     // 4. Advance to next channel or finish.
-    bool foundNext = false;
-    for (uint32_t i = 0; i < kScanChannelCount; i++) {
-        if (kScanChannels[i] == com.sc_scan_chan) {
-            if (i + 1 < kScanChannelCount) {
-                com.sc_scan_chan = kScanChannels[i + 1];
-                foundNext = true;
-            }
-            break;
-        }
-    }
-
-    if (foundNext && mScanTimer) {
+    com.sc_scan_idx++;
+    if (com.sc_scan_idx < com.sc_scan_count && mScanTimer) {
         mScanTimer->setTimeoutMS(100);
         mScanTimer->enable();
     } else {
