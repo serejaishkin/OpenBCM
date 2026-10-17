@@ -60,7 +60,7 @@ private:
     uint32_t mFramePoolOffset {0};
     uint32_t mFrameSize {2048};
 
-    D11::TxRing *mRing {nullptr};
+    bcm::d11::TxRing *mRing {nullptr};
 
     uint16_t mProd {0};
     uint16_t mCons {0};

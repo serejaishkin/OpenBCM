@@ -82,8 +82,8 @@ private:
     uint32_t mBufOffset {0};        // RX buffer pool offset within DMA buf
     uint64_t mTableBusAddr {0};     // bus address of descriptor table
 
-    D11::RxRing *mRing {nullptr};
-    D11::Phy    *mPhy  {nullptr};   // D11 PHY (channel switch, RSSI)
+    bcm::d11::RxRing *mRing {nullptr};
+    bcm::d11::Phy    *mPhy  {nullptr};   // D11 PHY (channel switch, RSSI)
 
     uint16_t mProd {0};
     uint16_t mCons {0};
