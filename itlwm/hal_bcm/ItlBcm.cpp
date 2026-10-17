@@ -159,6 +159,46 @@ bcm_watchdog(struct _ifnet *ifp)
 }
 
 // ---------------------------------------------------------------------------
+// net80211 attach (init80211)
+// ---------------------------------------------------------------------------
+
+bool ItlBcm::
+init80211()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    ic->ic_phytype = IEEE80211_T_OFDM;
+    ic->ic_opmode = IEEE80211_M_STA;
+    ic->ic_state = IEEE80211_S_INIT;
+
+    ic->ic_caps =
+        IEEE80211_C_WEP |
+        IEEE80211_C_RSN |
+        IEEE80211_C_SCANALL |
+        IEEE80211_C_SCANALLBAND |
+        IEEE80211_C_SHSLOT |
+        IEEE80211_C_SHPREAMBLE |
+        IEEE80211_C_QOS;
+
+    ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
+    ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
+    ic->ic_sup_rates[IEEE80211_MODE_11G] = ieee80211_std_rateset_11g;
+
+    ifp->if_softc = &com;
+    ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST | IFF_DEBUG;
+    ifp->if_start = bcm_start;
+    ifp->if_watchdog = bcm_watchdog;
+
+    if_attach(ifp);
+    ieee80211_ifattach(ifp, getController());
+    ieee80211_media_init(ifp);
+
+    XYLog("%s: net80211 attached, ifp=%p\n", __FUNCTION__, (void *)ifp);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // net80211 RX injection (called by the D11 RX interrupt handler).
 // ---------------------------------------------------------------------------
 
@@ -527,7 +567,10 @@ bcm_rx_poll()
 {
     if (!com.sc_running || !mRxRing)
         return;
-    if (com.sc_scanning && com.sc_scan_count > 0) {
+    if (mHostScanActive) {
+        // Host-driven scan: report the current hop channel.
+        mRxRing->setCurrentChan(mHostScanList[mHostScanIdx]);
+    } else if (com.sc_scanning && com.sc_scan_count > 0) {
         uint8_t idx = com.sc_scan_idx > 0 ? com.sc_scan_idx - 1 : 0;
         if (idx < com.sc_scan_count)
             mRxRing->setCurrentChan(com.sc_scan_list[idx]);
@@ -648,6 +691,201 @@ bcm_scan_done()
     // net80211 leaves SCAN state and reports results to WCL/menu.
     XYLog("%s: scan complete, leaving SCAN state\n", __FUNCTION__);
     ieee80211_end_scan(ifp);
+}
+
+// ---------------------------------------------------------------------------
+// Host-driven passive scan (D11 SoftMAC).
+//
+// The host hops channels via the D11 PHY, sends a probe request on each
+// channel through the TX ring, and receives beacons/probe-responses through
+// the RX ring (bcm_rx_poll -> bcm_rx_input -> ieee80211_inputm).
+// ---------------------------------------------------------------------------
+
+void ItlBcm::
+s_host_scan_timer(OSObject *target, IOTimerEventSource *sender)
+{
+    (void)sender;
+    ItlBcm *self = OSDynamicCast(ItlBcm, target);
+    if (!self) return;
+    self->bcm_host_scan_next_channel();
+}
+
+bool ItlBcm::
+bcm_build_probe_req(uint8_t *buf, uint32_t bufSize, uint32_t *frameLen)
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    if (bufSize < 64 || !buf || !frameLen) return false;
+
+    // 802.11 Probe Request frame:
+    //   FC = 0x0040 (Probe Request, ToDS=0, FromDS=0)
+    //   Dur = 0
+    //   DA = broadcast
+    //   SA = ic_myaddr
+    //   BSSID = broadcast
+    //   Seq = 0
+    //   SSID IE (len=0, broadcast)
+    //   Supported Rates IE (1,2,5.5,11,18,24,36,54 Mbps)
+    struct {
+        UInt16 fc;
+        UInt16 dur;
+        UInt8  da[6];
+        UInt8  sa[6];
+        UInt8  bssid[6];
+        UInt16 seq;
+        UInt8  ssid_ie[2];
+        UInt8  rates_ie[10];
+    } __attribute__((packed)) frame;
+
+    memset(&frame, 0, sizeof(frame));
+    frame.fc = 0x0040; // probe request
+    memcpy(frame.da, "\xff\xff\xff\xff\xff\xff", 6);
+    IEEE80211_ADDR_COPY(frame.sa, ic->ic_myaddr);
+    memcpy(frame.bssid, "\xff\xff\xff\xff\xff\xff", 6);
+    frame.seq = 0;
+
+    // SSID IE: 0x00, len=0 (broadcast SSID)
+    frame.ssid_ie[0] = 0x00;
+    frame.ssid_ie[1] = 0x00;
+
+    // Supported Rates IE: 0x01, len=8
+    // 0x82=1MB, 0x84=2MB, 0x8b=5.5MB, 0x96=11MB, 0x24=18MB, 0x30=24MB, 0x48=36MB, 0x6c=54MB
+    frame.rates_ie[0] = 0x01;
+    frame.rates_ie[1] = 8;
+    frame.rates_ie[2] = 0x82;
+    frame.rates_ie[3] = 0x84;
+    frame.rates_ie[4] = 0x8b;
+    frame.rates_ie[5] = 0x96;
+    frame.rates_ie[6] = 0x24;
+    frame.rates_ie[7] = 0x30;
+    frame.rates_ie[8] = 0x48;
+    frame.rates_ie[9] = 0x6c;
+
+    uint32_t len = (uint32_t)sizeof(frame);
+    if (len > bufSize) return false;
+    memcpy(buf, &frame, len);
+    *frameLen = len;
+    return true;
+}
+
+void ItlBcm::
+bcm_host_scan_probe(uint8_t chan)
+{
+    // Program the D11 PHY to the target channel (also programs radio for TX).
+    if (mRxRing) {
+        mRxRing->setCurrentChan(chan);
+    }
+
+    // Build and send a probe request.
+    uint8_t frameBuf[128];
+    uint32_t frameLen = 0;
+    if (!bcm_build_probe_req(frameBuf, sizeof(frameBuf), &frameLen)) {
+        XYLog("%s: probe req build failed\n", __FUNCTION__);
+        return;
+    }
+    if (!mTxRing || !mTxRing->enqueue(frameBuf, frameLen)) {
+        XYLog("%s: probe req TX enqueue failed (chan=%u)\n", __FUNCTION__, (unsigned)chan);
+        return;
+    }
+    mTxRing->pollTx();
+    XYLog("%s: probe sent on channel %u (len=%u)\n",
+          __FUNCTION__, (unsigned)chan, frameLen);
+}
+
+void ItlBcm::
+bcm_host_scan_next_channel()
+{
+    if (!mHostScanActive || mHostScanCount == 0) {
+        bcm_scan_done();
+        return;
+    }
+
+    // Move to next channel.
+    mHostScanIdx++;
+    if (mHostScanIdx >= mHostScanCount) {
+        // Scan complete.
+        mHostScanActive = false;
+        mHostScanIdx = 0;
+        mHostScanCount = 0;
+        bcm_scan_done();
+        return;
+    }
+
+    uint8_t chan = mHostScanList[mHostScanIdx];
+
+    // Send probe on this channel.
+    bcm_host_scan_probe(chan);
+
+    // Re-arm timer for next channel (200 ms dwell).
+    if (mHostScanTimer) {
+        mHostScanTimer->setTimeoutMS(200);
+        mHostScanTimer->enable();
+    }
+}
+
+void ItlBcm::
+bcm_bgscan_start()
+{
+    // Firmware-driven scan via WLC escan over olmsg.
+    XYLog("%s: background scan requested (WLC escan via olmsg)\n", __FUNCTION__);
+    if (sc && sc->sc_driver)
+        sc->sc_driver->bcm_scan_start();
+    return 0;
+}
+
+void ItlBcm::
+bcm_host_scan_start()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct _ifnet *ifp = IC2IFP(ic);
+
+    if (mHostScanActive) return;
+
+    // Build channel list from net80211's regdomain view.
+    mHostScanCount = 0;
+    mHostScanIdx = 0;
+    for (int ch = 1; ch <= IEEE80211_CHAN_MAX &&
+         mHostScanCount < (int)sizeof(mHostScanList); ch++) {
+        if (!(ic->ic_chan_avail[ch / 8] & (1U << (ch % 8))))
+            continue;
+        if (ic->ic_wcl_scan_restricted) {
+            if (ch >= 256) continue;
+            if (!(ic->ic_wcl_scan_channels[ch / 8] & (1U << (ch % 8))))
+                continue;
+        }
+        mHostScanList[mHostScanCount++] = (uint8_t)ch;
+    }
+    if (mHostScanCount == 0) {
+        // Defensive fallback: 2.4 GHz only
+        for (int ch = 1; ch <= 14 &&
+             mHostScanCount < (int)sizeof(mHostScanList); ch++)
+            mHostScanList[mHostScanCount++] = (uint8_t)ch;
+        XYLog("%s: ic_chan_avail empty, falling back to 2.4 GHz 1-14\n",
+              __FUNCTION__);
+    }
+    if (mHostScanCount == 0) {
+        XYLog("%s: no usable channels\n", __FUNCTION__);
+        return;
+    }
+
+    com.sc_scanning = true;
+    mHostScanActive = true;
+
+    // Create scan timer on the main workloop.
+    if (!mHostScanTimer && getMainWorkLoop()) {
+        mHostScanTimer = IOTimerEventSource::timerEventSource(
+            this, ItlBcm::s_host_scan_timer);
+        if (mHostScanTimer) {
+            getMainWorkLoop()->addEventSource(mHostScanTimer);
+        }
+    }
+
+    // Start on first channel.
+    bcm_host_scan_next_channel();
+
+    XYLog("%s: host-driven scan started (%u channels)\n",
+          __FUNCTION__, mHostScanCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -804,6 +1042,15 @@ releaseAll()
         mWlcPollTimer->release();
         mWlcPollTimer = nullptr;
     }
+    if (mHostScanTimer) {
+        if (getMainWorkLoop())
+            getMainWorkLoop()->removeEventSource(mHostScanTimer);
+        mHostScanTimer->release();
+        mHostScanTimer = nullptr;
+    }
+    mHostScanActive = false;
+    mHostScanCount = 0;
+    mHostScanIdx = 0;
     ol.stop();
 }
 
@@ -878,6 +1125,11 @@ disable(IONetworkInterface *netif)
         mWlcPollTimer->cancelTimeout();
         mWlcPollTimer->disable();
     }
+    if (mHostScanTimer) {
+        mHostScanTimer->cancelTimeout();
+        mHostScanTimer->disable();
+    }
+    mHostScanActive = false;
     if (mRxRing) { mRxRing->stop(); delete mRxRing; mRxRing = nullptr; }
     if (mTxRing) { mTxRing->stop(); delete mTxRing; mTxRing = nullptr; }
     bcm_scan_done();

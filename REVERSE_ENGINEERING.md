@@ -98,20 +98,17 @@ Find in brcmfmac disassembly/source:
 |------|---------------|---------|
 | D11 core base | `d11core->regs`, `si_setcore(si, D11_CORE_ID, 0)` | Usually `0x18004000` on 4360/43602 |
 | PHY register base offset | `d11core->phyregs` or `si_setcore(si, PHY_CORE_ID, 0)` | `0x18008000` etc. |
-| Channel register write | `_wlc_bmac_set_channel`, `_wlc_phy_channel` | Write channel to PHY reg `0x44c` / `0x44e` etc. |
-| Radio register writes | `_wlc_phy_radio_init`, `phy_reg_write` | `0x4e`, `0x50` etc. |
-| Band select (2G/5G) | `CHAN_2GHZ` vs `CHAN_5GHZ` flags | Reg `0x4e` bit for band |
+| Channel register write | `_wlc_bmac_set_channel`, `_wlc_phy_channel` | **NOT available from open sources** (AC-PHY). Only achievable via firmware (WLC_SET_CHANNEL=30). |
+| Radio register writes | `_wlc_phy_radio_init`, `phy_reg_write` | **NOT available from open sources** (AC-PHY). Only achievable via firmware. |
+| Band select (2G/5G) | `CHAN_2GHZ` vs `CHAN_5GHZ` flags | Handled by firmware; host uses `WLC_SET_CHANNEL=30` with channel number. |
 | XTAL / crystal settings | `phy_cal_txiqlo`, `phy_init` | Crystal offset, PA gain |
 
 Deliverable for AI: a C header snippet like:
 
 ```c
 // D11 PHY register map (from brcmfmac reverse)
-#define D11_PHY_CHANNEL_REG   0x44c   // offset from D11 core base
-#define D11_PHY_RADIO_REG     0x4e
-#define D11_PHY_BAND_2GHZ     0x0001
-#define D11_PHY_BAND_5GHZ     0x0002
-#define D11_PHY_CHANNEL_MASK  0xff
+// D11 PHY channel switching: NOT available from open sources for AC-PHY.
+// Use firmware-driven WLC_SET_CHANNEL=30 instead. See RE_FINDINGS.md §1.
 ```
 
 ### 2.2 WLC/BCDC scan command set (OPTIONAL — only if host-driven scan fails)
@@ -175,18 +172,10 @@ When you find the register map, produce a diff/patch like this:
 --- a/itlwm/hal_bcm/ChipConfigurator.cpp
 +++ b/itlwm/hal_bcm/ChipConfigurator.cpp
 @@ -X +X @@
-+static const UInt32 kD11PhyChanReg = 0x44c;   // from brcmfmac
-+static const UInt32 kD11PhyBand2G = 0x0001;
-+static const UInt32 kD11PhyBand5G = 0x0002;
-+
-+void ChipConfigurator::setChannel(UInt8 channel) {
-+    UInt32 band = (channel <= 14) ? kD11PhyBand2G : kD11PhyBand5G;
-+    writeD11Reg(kD11PhyChanReg, channel | (band << 8));
-+}
-+
+// D11 PHY channel switching: NOT available from open sources for AC-PHY.
+// Use firmware-driven WLC_SET_CHANNEL=30 instead. See RE_FINDINGS.md §1.
 ```
-
-And modify `ItlBcm::bcm_scan_next_channel()` to call `cfg.setChannel(com.sc_scan_list[...])` before enqueuing the probe request.
+And modify `ItlBcm::bcm_scan_next_channel()` to call `bcm_wlc_send_ioctl(wlc::C_SET_CHANNEL, ...)` instead of `cfg.setChannel()`.
 
 ---
 

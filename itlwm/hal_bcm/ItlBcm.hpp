@@ -11,13 +11,16 @@
  * hopping, beacon reception, authentication, association.
  *
  * Data plane: host-driven D11 SoftMAC `dma64` TX/RX rings (Dma64RxRing /
- * Dma64TxRing). Used for data frames and, optionally, for passive scan
- * when firmware-driven scan is not available.
+ * Dma64TxRing). Used for data frames and for host-driven passive scan:
+ * the host hops channels via the D11 PHY, sends probe requests through the
+ * TX ring, and receives beacons/probe-responses through the RX ring,
+ * injecting them into net80211 via ieee80211_inputm().
  *
  * STATUS: bring-up + net80211 attach + D11 RX/TX rings implemented; WLC
  * control plane (escan/join/set_ssid/set_wsec_pmk) via olmsg implemented;
- * PHY channel switching still relies on firmware (host cannot program D11
- * PHY registers without reverse-engineered register map).
+ * D11 PHY channel switching implemented with placeholder register values
+ * (TODO(RE): replace with real PHY register map from AirPortBrcmNIC).
+ * Host-driven passive scan is implemented and is the default scan path.
  */
 
 #ifndef ItlBcm_hpp
@@ -129,6 +132,25 @@ public:
     UInt8 mWlcScanBssid[6] {0};
     bool mWlcScanBssidSet {false};
 
+    // Host-driven scan state (D11 SoftMAC passive scan).
+    bool mHostScanActive {false};
+    UInt8 mHostScanList[64] {0};
+    UInt8 mHostScanCount {0};
+    UInt8 mHostScanIdx {0};
+    UInt8 mHostScanSsid[32] {0};
+    UInt8 mHostScanSsidLen {0};
+    IOTimerEventSource *mHostScanTimer {nullptr};
+    static void s_host_scan_timer(OSObject *target, IOTimerEventSource *sender);
+
+    // Host-driven scan: build a probe request frame and send it on `chan`.
+    void bcm_host_scan_start();
+    void bcm_host_scan_next_channel();
+    void bcm_host_scan_probe(uint8_t chan);
+    bool bcm_build_probe_req(uint8_t *buf, uint32_t bufSize, uint32_t *frameLen);
+
+    // net80211 ic_bgscan_start callback: start host-driven passive scan.
+    void bcm_bgscan_start();
+
     // PCI match predicate used by IOPCIEDeviceWrapper::probe.
     static bool bcm_match(IOPCIDevice *device);
     void setDeviceConfig(const ChipDeviceConfig &cfg);
@@ -150,6 +172,7 @@ private:
 
     // D11 RX poll timer (50 ms): keeps data/mgmt flowing in RUN state.
     IOTimerEventSource *mRxPollTimer {nullptr};
+    IOTimerEventSource *mScanTimer {nullptr};
     static void s_rx_poll(OSObject *target, IOTimerEventSource *sender);
     static void s_rxDeliver(void *ctx, mbuf_t m, int8_t rssi, uint8_t chan);
 

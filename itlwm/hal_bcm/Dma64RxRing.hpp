@@ -33,6 +33,9 @@
 #include "D11Phy.hpp"
 #include "ChipConfigurator.hpp"
 
+// Use the bcm::d11 namespace (project uses -std=gnu++14, not C++17 nested ns)
+using namespace bcm::d11;
+
 // Callback type for RX frame delivery with caller context.
 // (mbuf_t, rssi, chan). The callee takes ownership of the mbuf.
 using Dma64RxCallback = void (*)(void *cbCtx, mbuf_t, int8_t, uint8_t);

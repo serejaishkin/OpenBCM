@@ -21,6 +21,9 @@
 #include "D11.hpp"
 #include "ChipConfigurator.hpp"
 
+// Use the bcm::d11 namespace (project uses -std=gnu++14, not C++17 nested ns)
+using namespace bcm::d11;
+
 class Dma64TxRing {
 public:
     Dma64TxRing(ChipConfigurator *cfg, uint16_t channel = 0, uint16_t count = 64);
