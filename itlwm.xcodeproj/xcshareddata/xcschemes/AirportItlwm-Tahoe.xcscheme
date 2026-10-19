@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1100"
+   LastUpgradeVersion = "2630"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A6465A40B44EE5DC353B726B"
-               BuildableName = "AirportItlwm.kext"
+               BuildableName = "OpenBCM.kext"
                BlueprintName = "AirportItlwm-Tahoe"
                ReferencedContainer = "container:itlwm.xcodeproj">
             </BuildableReference>
@@ -51,7 +51,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "35CBE655251CB89700435CBC"
-            BuildableName = "AirportItlwm.kext"
+            BuildableName = "OpenBCM.kext"
             BlueprintName = "AirportItlwm-Big Sur"
             ReferencedContainer = "container:itlwm.xcodeproj">
          </BuildableReference>
