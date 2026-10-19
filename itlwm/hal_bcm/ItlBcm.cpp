@@ -27,7 +27,7 @@
 #include "ItlBcm.hpp"
 #include "WlcDefs.hpp"
 
-#include <cstring>
+#include <string.h>
 #include <cstdio>
 
 #define super ItlHalService
