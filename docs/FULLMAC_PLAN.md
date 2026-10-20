@@ -16,7 +16,7 @@
 
 ## Что дальше (порядок)
 1. Сборка на macOS (в этой правке не проверялась — нет Xcode/MacKernelSDK).
-2. Join: нет `wsec` / `wpa_auth` / `sup_wpa` / `WLC_SET_WSEC_PMK` — без них только open-сети.
+2. Join (сделано, не проверено на железе): `bcm_wlc_join` шлёт `wpa_auth`/`auth`/`wsec`/`sup_wpa`, `WLC_SET_WSEC_PMK` (PSK из `ic_psk`) и bsscfg `join` (ext_join_params, раскладка с natural alignment); `bcm_wlc_join_legacy` (WLC_SET_SSID) — запасной путь. WPA3/SAE и 802.1X не поддержаны.
 3. D2H события: `E_LINK` парсится как голый u32, реальные события несут заголовок
    `brcmf_event_msg`; сверить на железе (`ver`/`cur_etheraddr` через olmsg).
 4. Данные fullmac: для Apple dlimage канала данных нет (D11 RE заблокирован, см. RE_FINDINGS.md).

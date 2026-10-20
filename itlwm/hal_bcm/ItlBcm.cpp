@@ -375,18 +375,92 @@ bcm_wlc_scan_channels(const uint8_t *channels, uint32_t count)
 }
 
 void ItlBcm::
+bcm_wlc_send_bsscfg_set(const char *name, UInt32 value)
+{
+    // brcmf_fil_bsscfg_int_set: iovar "bsscfg:<name>", payload = le32 bsscfg
+    // index (0) followed by le32 value.
+    char full[48];
+    snprintf(full, sizeof(full), "bsscfg:%s", name);
+    UInt32 data[2] = { 0, value };
+    bcm_wlc_send_iovar_set(full, data, sizeof(data));
+}
+
+void ItlBcm::
 bcm_wlc_join(const char *ssid, uint32_t ssid_len, const UInt8 *bssid)
 {
-    // Build WLC_SET_SSID (26) payload:
-    // struct brcmf_ssid_le { u32 len; u8 ssid[32]; }
+    struct ieee80211com *ic = &com.sc_ic;
+    struct ieee80211_node *ni = ic->ic_bss;
+    UInt32 len = ssid_len > 32 ? 32 : ssid_len;
+
+    // ---- security (brcmf_cfg80211_connect order, see WlcDefs.hpp) ----
+    bool secure = (ic->ic_flags & IEEE80211_F_RSNON) != 0;
+    if (secure && !(ic->ic_flags & IEEE80211_F_PSK)) {
+        // Only WPA/WPA2-PSK is handled by the firmware supplicant here.
+        XYLog("%s: RSN network without PSK (802.1X/SAE not supported)\n",
+              __FUNCTION__);
+        mJoinPending = false;
+        return;
+    }
+    if (secure) {
+        bool wpa2 = !ni || (ni->ni_rsnprotos & IEEE80211_PROTO_RSN);
+        UInt32 wsec = (ni && !(ni->ni_rsnciphers & IEEE80211_CIPHER_CCMP) &&
+                       (ni->ni_rsnciphers & IEEE80211_CIPHER_TKIP))
+                      ? wlc::WSEC_TKIP : wlc::WSEC_AES;
+        bcm_wlc_send_bsscfg_set("wpa_auth",
+            wpa2 ? wlc::WPA2_AUTH_PSK : wlc::WPA_AUTH_PSK);
+        bcm_wlc_send_bsscfg_set("auth", 0);            // open system
+        bcm_wlc_send_bsscfg_set("wsec", wsec);
+        UInt32 one = 1;
+        bcm_wlc_send_iovar_set("sup_wpa", &one, sizeof(one));
+        // brcmf_wsec_pmk_le { le16 key_len; le16 flags; u8 key[64]; }
+        UInt8 pmk[68] = {0};
+        UInt16 klen = 32, kflags = 0;                  // raw PSK, not passphrase
+        memcpy(pmk, &klen, 2);
+        memcpy(pmk + 2, &kflags, 2);
+        memcpy(pmk + 4, ic->ic_psk, 32);
+        bcm_wlc_send_ioctl(wlc::C_SET_WSEC_PMK, pmk, sizeof(pmk));
+        memset(pmk, 0, sizeof(pmk));
+    } else {
+        bcm_wlc_send_bsscfg_set("wpa_auth", wlc::WPA_AUTH_DISABLED);
+        bcm_wlc_send_bsscfg_set("auth", 0);
+        bcm_wlc_send_bsscfg_set("wsec", 0);
+    }
+
+    // ---- bsscfg "join": brcmf_ext_join_params_le, natural alignment ----
+    //   0  ssid_le   {le32 len; u8 ssid[32]}                      (36)
+    //   36 scan_le   {u8 type; pad3; le32 nprobes,active,passive,home} (20)
+    //   56 assoc_le  {u8 bssid[6]; pad2; le32 chanspec_num; ...}   (12)
+    UInt8 ej[68];
+    memset(ej, 0, sizeof(ej));
+    memcpy(ej, &len, 4);
+    memcpy(ej + 4, ssid, len);
+    ej[36] = 0xFF;                                      // scan_type = -1
+    UInt32 negOne = 0xFFFFFFFF;
+    for (int k = 0; k < 4; k++)
+        memcpy(ej + 40 + 4 * k, &negOne, 4);            // nprobes..home = -1
+    if (bssid)
+        memcpy(ej + 56, bssid, 6);
+    else
+        memset(ej + 56, 0xFF, 6);
+    // chanspec_num = 0: firmware picks the channel from the BSSID/SSID scan.
+    bcm_wlc_send_iovar_set("join", ej, sizeof(ej));
+    XYLog("%s: join sent (ssid=%.*s, %s)\n", __FUNCTION__, (int)len, ssid,
+          secure ? "PSK" : "open");
+
+    // The old WLC_SET_SSID path stays as the documented fallback.
+    // TODO(HW): if olmsg rejects "join", call bcm_wlc_join_legacy().
+}
+
+void ItlBcm::
+bcm_wlc_join_legacy(const char *ssid, uint32_t ssid_len)
+{
+    // WLC_SET_SSID (26): brcmf_ssid_le { le32 len; u8 ssid[32]; }
     UInt8 payload[36];
     UInt32 len = ssid_len > 32 ? 32 : ssid_len;
     memset(payload, 0, sizeof(payload));
     memcpy(payload, &len, 4);
     memcpy(payload + 4, ssid, len);
     bcm_wlc_send_ioctl(wlc::C_SET_SSID, payload, 36);
-    XYLog("%s: WLC_SET_SSID sent (len=%u, ssid=%.*s)\n",
-          __FUNCTION__, len, (int)len, ssid);
 }
 
 void ItlBcm::

@@ -121,6 +121,8 @@ public:
     void bcm_wlc_send_iovar_set(const char *name, const void *buf, UInt32 len);
     void bcm_wlc_scan_channels(const uint8_t *channels, uint32_t count);
     void bcm_wlc_join(const char *ssid, uint32_t ssid_len, const UInt8 *bssid);
+    void bcm_wlc_join_legacy(const char *ssid, uint32_t ssid_len);
+    void bcm_wlc_send_bsscfg_set(const char *name, UInt32 value);
     void bcm_wlc_poll_d2h();   // drain olmsg RX and process WLC events
     void bcm_wlc_d2h_msg(const OlControlMessage *msg);  // parse one D2H message
     void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,
