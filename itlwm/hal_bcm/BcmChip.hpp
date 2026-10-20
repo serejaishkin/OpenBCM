@@ -82,8 +82,10 @@ struct ChipDeviceConfig {
     char     firmwareResourceName[64] {0}; // embedded name or bundle filename
     TransportType transport {TransportType::kAppleCore};
     ChipType chipType {ChipType::kSoftmac};
+    bool     chipTypeSet {false};   // true when Info.plist carried "ChipType"
     UInt32   d11CoreBase {0};       // override D11 core base (0 = keep table)
     bool     needsCortexR4 {true};
+    bool     needsCortexR4Set {false}; // true when Info.plist carried "NeedsCortexR4"
 };
 
 struct ChipDescriptor {
@@ -103,6 +105,8 @@ struct ChipDescriptor {
 
     // Apply a per-device personality override on top of this table entry.
     void applyOverride(const ChipDeviceConfig &cfg);
+
+    bool isFullmac() const { return chipType == ChipType::kFullmac; }
 };
 
 // All three run the same AppleCore `_wlc_ol_up` loader; the firmware resource
@@ -127,9 +131,11 @@ inline void ChipDescriptor::applyOverride(const ChipDeviceConfig &cfg) {
     // are applied there via mChipRevOverride.
     if (cfg.firmwareResourceName[0] != 0) firmwareResourceName = cfg.firmwareResourceName;
     if (cfg.transport != TransportType::kAppleCore) transport = cfg.transport;
-    if (cfg.chipType != ChipType::kSoftmac) chipType = cfg.chipType;
+    // ChipType is a *personality* choice, not a hardware property: the same
+    // PCI id can run the Apple dlimage (softmac) or a fullmac image.
+    if (cfg.chipTypeSet) chipType = cfg.chipType;
     if (cfg.d11CoreBase != 0) d11CoreBase = cfg.d11CoreBase;
-    if (cfg.needsCortexR4 != false) needsCortexR4 = cfg.needsCortexR4;
+    if (cfg.needsCortexR4Set) needsCortexR4 = cfg.needsCortexR4;
 }
 
 // Firmware IPC channel addresses exposed after download (shared memory hdr).

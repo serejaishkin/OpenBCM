@@ -108,6 +108,7 @@ probe(IOService *provider, SInt32 *score)
                 devCfg.chipType = ChipType::kFullmac;
             else
                 devCfg.chipType = ChipType::kSoftmac;
+            devCfg.chipTypeSet = true;
         }
         OSString *fwSource = OSDynamicCast(OSString, device->getProperty("FirmwareSource"));
         if (fwSource) {
@@ -123,7 +124,10 @@ probe(IOService *provider, SInt32 *score)
         OSNumber *d11Base = OSDynamicCast(OSNumber, device->getProperty("D11CoreBase"));
         if (d11Base) devCfg.d11CoreBase = (UInt32)d11Base->unsigned32BitValue();
         OSNumber *needsR4 = OSDynamicCast(OSNumber, device->getProperty("NeedsCortexR4"));
-        if (needsR4) devCfg.needsCortexR4 = needsR4->unsigned32BitValue() != 0;
+        if (needsR4) {
+            devCfg.needsCortexR4 = needsR4->unsigned32BitValue() != 0;
+            devCfg.needsCortexR4Set = true;
+        }
         ((ItlBcm *)fHalService)->setDeviceConfig(devCfg);
     }
 #endif

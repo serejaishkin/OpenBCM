@@ -39,6 +39,7 @@ public:
     bool init(IOPCIDevice *device, UInt32 chipNumber);
     bool start();
     void stop();
+    bool isRunning() const { return mRunning; }
 
     // Host -> device: copy the message into the TX ring and ring the doorbell.
     bool sendControl(const void *msg, UInt32 len);

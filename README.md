@@ -64,6 +64,11 @@ Per-chip configuration lives in `AirportItlwm/WCL/Info.plist` (Sequoia) and `Air
 
 Add a new personality dict under `IOKitPersonalities` to support a new Broadcom PCI ID.
 
+## Softmac / fullmac
+
+`ChipType` в personality выбирает режим на устройстве (один kext, оба режима): `softmac` — хост
+ведёт D11 dma64, `fullmac` — MAC/PHY у прошивки, хост шлёт WLC-команды. Детали и план: `docs/FULLMAC_PLAN.md`.
+
 ## Firmware sources
 
 Firmware is resolved in this order:

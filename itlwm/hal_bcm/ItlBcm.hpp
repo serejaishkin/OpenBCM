@@ -68,6 +68,10 @@ struct bcm_softc {
     bool sc_running;
     bool sc_scanning;     // a net80211 scan (fg or bg) is in progress
     const char *sc_fwver;
+    // Channel list for the firmware-driven (WLC escan) scan.
+    uint8_t sc_scan_list[64];
+    uint8_t sc_scan_count;
+    uint8_t sc_scan_idx;
     int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
     ItlBcm *sc_driver;    // back-pointer to owning ItlBcm (set in attach)
 };
@@ -83,6 +87,8 @@ public:
     IOReturn enable(IONetworkInterface *netif) override;
     IOReturn disable(IONetworkInterface *netif) override;
     struct ieee80211com *get80211Controller() override;
+    ItlDriverInfo *getDriverInfo() override;
+    ItlDriverController *getDriverController() override;
 #ifdef AIRPORT_WCL
     IOReturn setScanHomeAwayTime(uint32_t milliseconds) override {
         com.sc_ic.ic_wcl_scan_away_time_ms = milliseconds;
@@ -124,6 +130,24 @@ public:
     Dma64RxRing *mRxRing {nullptr};
     Dma64TxRing *mTxRing {nullptr};
 
+    // Firmware-driven scan (WLC escan over olmsg); used by softmac (as the
+    // scan path until D11 PHY is reversed) and by fullmac.
+    void bcm_scan_start();
+    void bcm_scan_next_channel();
+    void bcm_scan_done();
+    static void s_scan_timer(OSObject *target, IOTimerEventSource *sender);
+
+    // MAC ownership, selected per device by the Info.plist "ChipType".
+    //   softmac: host drives D11 dma64 rings (data plane lives in the kext).
+    //   fullmac: firmware owns MAC/PHY/data; host only exchanges WLC commands
+    //            and events (data plane transport still TODO, see
+    //            docs/FULLMAC_PLAN.md).
+    bool isFullmac() const { return descriptor && descriptor->isFullmac(); }
+    // fullmac join handshake (called from bcm_newstate / D2H events).
+    void bcm_fullmac_join_start();
+    void bcm_fullmac_link_event(bool up);
+    bool mJoinPending {false};
+
     // WLC scan state (firmware-driven).
     bool mWlcScanActive {false};
     UInt32 mWlcScanSeq {0};
@@ -162,6 +186,7 @@ private:
     ChipConfigurator cfg;
     BcdcOlTransport ol;
     const ChipDescriptor *descriptor {nullptr};
+    ChipDescriptor mDescriptor {};       // owned copy: table entry + personality override
     ChipDeviceConfig mDeviceConfig {};   // personality overrides from Info.plist
 
     // WLC/olmsg D2H poll timer: fires periodically during scan to read

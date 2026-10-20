@@ -56,10 +56,10 @@ bcm_match(IOPCIDevice *device)
 }
 
 void ItlBcm::
-setDeviceConfig(const ChipDeviceConfig &cfg)
+setDeviceConfig(const ChipDeviceConfig &devCfg)
 {
-    mDeviceConfig = cfg;
-    cfg.setDeviceConfig(cfg);
+    mDeviceConfig = devCfg;
+    cfg.setDeviceConfig(devCfg);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +84,17 @@ bcm_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
         sc->sc_scanning = false;
     }
 
-    // Join path: AUTH/ASSOC/RUN frames flow through bcm_start (TX ring) and
-    // bcm_rx_poll -> bcm_rx_input (RX ring); stock net80211 advances the
+    // fullmac: firmware performs AUTH/ASSOC/4-way itself. net80211 must not
+    // emit management frames, so AUTH kicks off a WLC join and the state
+    // machine resumes (-> RUN) from the PSK_SUP/LINK D2H events.
+    if (nstate == IEEE80211_S_AUTH && sc && sc->sc_driver &&
+        sc->sc_driver->isFullmac()) {
+        sc->sc_driver->bcm_fullmac_join_start();
+        return 0;
+    }
+
+    // softmac join path: AUTH/ASSOC/RUN frames flow through bcm_start (TX ring)
+    // and bcm_rx_poll -> bcm_rx_input (RX ring); stock net80211 advances the
     // state when responses arrive. Just chain up and log progress.
     if (nstate == IEEE80211_S_AUTH || nstate == IEEE80211_S_ASSOC ||
         nstate == IEEE80211_S_RUN) {
@@ -194,6 +203,13 @@ init80211()
     ieee80211_ifattach(ifp, getController());
     ieee80211_media_init(ifp);
 
+    ic->ic_node_alloc = bcm_node_alloc;
+    ic->ic_bgscan_start = bcm_bgscan_start;
+    ic->ic_set_key = bcm_set_key;
+    ic->ic_delete_key = bcm_delete_key;
+    com.sc_newstate = ic->ic_newstate;
+    ic->ic_newstate = bcm_newstate;
+
     XYLog("%s: net80211 attached, ifp=%p\n", __FUNCTION__, (void *)ifp);
     return true;
 }
@@ -236,6 +252,13 @@ bcm_tx_start(struct _ifnet *ifp)
     while ((m = ifq_dequeue(&ifp->if_snd)) != nullptr) {
         uint32_t len = mbuf_pkthdr_len(m);
         bool sent = false;
+        if (isFullmac()) {
+            // TODO(fullmac): hand 802.3 frames to the firmware data path
+            // (msgbuf TX flowring), see docs/FULLMAC_PLAN.md.
+            mbuf_freem(m);
+            ifp->if_oerrors++;
+            continue;
+        }
         // Bounce through a stack buffer (max 802.11 frame) into the DMA ring.
         if (len > 0 && len <= 2048 && mTxRing) {
             uint8_t frame[2048];
@@ -468,9 +491,9 @@ bcm_wlc_d2h_msg(const OlControlMessage *msg)
             UInt32 status;
             memcpy(&status, payload, 4);
             XYLog("%s: E_PSK_SUP status=%u\n", __FUNCTION__, status);
-            if (status == 6) {
+            if (status == 6 && isFullmac()) {
                 // PTK done -> association complete
-                // net80211 will transition to RUN via ic_newstate
+                bcm_fullmac_link_event(true);
             }
         }
         break;
@@ -481,6 +504,8 @@ bcm_wlc_d2h_msg(const OlControlMessage *msg)
             UInt32 status;
             memcpy(&status, payload, 4);
             XYLog("%s: E_LINK status=%u\n", __FUNCTION__, status);
+            if (isFullmac() && !(status & 1))
+                bcm_fullmac_link_event(false);
         }
         break;
     }
@@ -827,11 +852,60 @@ bcm_host_scan_next_channel()
 void ItlBcm::
 bcm_bgscan_start()
 {
-    // Firmware-driven scan via WLC escan over olmsg.
-    XYLog("%s: background scan requested (WLC escan via olmsg)\n", __FUNCTION__);
-    if (sc && sc->sc_driver)
-        sc->sc_driver->bcm_scan_start();
-    return 0;
+#ifdef BCM_HOST_SCAN
+    // Opt-in: host-driven passive scan (needs a working D11 PHY channel
+    // switch, which is still TODO(RE)). Never valid for fullmac.
+    if (!isFullmac()) {
+        bcm_host_scan_start();
+        return;
+    }
+#endif
+    // Default for both modes: firmware-driven scan via WLC escan over olmsg;
+    // results arrive as E_ESCAN_RESULT in bcm_wlc_poll_d2h().
+    XYLog("%s: scan requested (WLC escan via olmsg, %s)\n", __FUNCTION__,
+          isFullmac() ? "fullmac" : "softmac");
+    bcm_scan_start();
+}
+
+void ItlBcm::
+s_scan_timer(OSObject *target, IOTimerEventSource *sender)
+{
+    (void)sender;
+    ItlBcm *self = OSDynamicCast(ItlBcm, target);
+    if (!self) return;
+    self->bcm_scan_next_channel();
+}
+
+// ---------------------------------------------------------------------------
+// fullmac join: net80211 AUTH -> WLC join; firmware reports completion.
+// ---------------------------------------------------------------------------
+
+void ItlBcm::
+bcm_fullmac_join_start()
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    struct ieee80211_node *ni = ic->ic_bss;
+    if (!ni) {
+        XYLog("%s: no ic_bss\n", __FUNCTION__);
+        return;
+    }
+    mJoinPending = true;
+    XYLog("%s: joining '%.*s'\n", __FUNCTION__, (int)ni->ni_esslen, ni->ni_essid);
+    bcm_wlc_join((const char *)ni->ni_essid, ni->ni_esslen, ni->ni_bssid);
+}
+
+void ItlBcm::
+bcm_fullmac_link_event(bool up)
+{
+    struct ieee80211com *ic = &com.sc_ic;
+    if (up && mJoinPending) {
+        mJoinPending = false;
+        XYLog("%s: link up -> RUN\n", __FUNCTION__);
+        com.sc_newstate(ic, IEEE80211_S_RUN, -1);
+    } else if (!up && ic->ic_state == IEEE80211_S_RUN) {
+        XYLog("%s: link down -> SCAN\n", __FUNCTION__);
+        ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
+    }
 }
 
 void ItlBcm::
@@ -912,28 +986,34 @@ attach(IOPCIDevice *device)
     com.sc_chipnumber = cfg.getChipId();
     com.sc_chiprev = cfg.getChipRevision();
 
-    descriptor = nullptr;
+    // Resolve the descriptor into an owned copy (member), so it outlives
+    // attach(); then layer the Info.plist personality on top. ChipType comes
+    // from the personality when present, else from the table default.
+    const ChipDescriptor *tableEntry = nullptr;
     for (size_t i = 0; i < sizeof(kBcmChipTable) / sizeof(kBcmChipTable[0]); i++) {
         if (kBcmChipTable[i].chipNumber == com.sc_chipnumber) {
-            descriptor = &kBcmChipTable[i];
+            tableEntry = &kBcmChipTable[i];
             break;
         }
     }
-    // If no table entry, build a temporary descriptor from personality config
-    // so requestFirmware() can fall back to embedded/bundle/filesystem loading.
-    ChipDescriptor fallbackDescriptor {};
-    if (!descriptor) {
+    if (tableEntry) {
+        mDescriptor = *tableEntry;
+    } else {
         XYLog("bcm: chip 0x%x not in static table, using personality config\n", com.sc_chipnumber);
-        fallbackDescriptor.deviceId = mDeviceConfig.deviceId;
-        fallbackDescriptor.chipNumber = mDeviceConfig.chipNumber ? mDeviceConfig.chipNumber : com.sc_chipnumber;
-        fallbackDescriptor.transport = mDeviceConfig.transport;
-        fallbackDescriptor.firmwareResourceName = mDeviceConfig.firmwareResourceName[0] ? mDeviceConfig.firmwareResourceName : nullptr;
-        fallbackDescriptor.sromSlide = 0;
-        fallbackDescriptor.needsCortexR4 = mDeviceConfig.needsCortexR4;
-        fallbackDescriptor.d11CoreBase = mDeviceConfig.d11CoreBase;
-        fallbackDescriptor.chipType = mDeviceConfig.chipType;
-        descriptor = &fallbackDescriptor;
+        mDescriptor = ChipDescriptor {};
+        mDescriptor.deviceId = mDeviceConfig.deviceId;
+        mDescriptor.chipNumber = mDeviceConfig.chipNumber ? mDeviceConfig.chipNumber : com.sc_chipnumber;
+        mDescriptor.transport = mDeviceConfig.transport;
+        mDescriptor.firmwareResourceName = nullptr;
+        mDescriptor.sromSlide = 0;
+        mDescriptor.needsCortexR4 = mDeviceConfig.needsCortexR4;
+        mDescriptor.d11CoreBase = mDeviceConfig.d11CoreBase;
+        mDescriptor.chipType = mDeviceConfig.chipType;
     }
+    mDescriptor.applyOverride(mDeviceConfig);
+    descriptor = &mDescriptor;
+    XYLog("bcm: chip 0x%x mode=%s\n", com.sc_chipnumber,
+          isFullmac() ? "fullmac" : "softmac");
     cfg.setChipDescriptor(descriptor);
 
     const UInt8 *fw = nullptr;
@@ -1065,8 +1145,24 @@ enable(IONetworkInterface *netif)
     ifp->if_flags |= IFF_UP;
     com.sc_running = true;
 
-    // Start the D11 data path: RX ring (receive beacons/data) + TX ring
-    // (probe requests/data frames).
+    if (isFullmac()) {
+        // Firmware owns MAC/PHY: no D11 rings, no host RX poll. Only the WLC
+        // D2H poll runs (scan results, link/PSK events).
+        if (!mWlcPollTimer && getMainWorkLoop()) {
+            mWlcPollTimer = IOTimerEventSource::timerEventSource(
+                this, ItlBcm::s_wlc_poll_timer);
+            if (mWlcPollTimer)
+                getMainWorkLoop()->addEventSource(mWlcPollTimer);
+        }
+        if (mWlcPollTimer) {
+            mWlcPollTimer->setTimeoutMS(100);
+            mWlcPollTimer->enable();
+        }
+        return kIOReturnSuccess;
+    }
+
+    // softmac: start the D11 data path: RX ring (receive beacons/data) + TX
+    // ring (probe requests/data frames).
     uint32_t d11CoreBase = cfg.getD11CoreBase() ? cfg.getD11CoreBase() : 0;
     uint32_t phyBase = d11CoreBase + D11::kD11PhyBaseOffset;
 
