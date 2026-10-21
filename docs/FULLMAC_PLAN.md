@@ -27,3 +27,14 @@
 5. Для fullmac-прошивок нужны также board nvram (`.txt`) и при необходимости `clm_blob`.
 6. `kBcmChipTable`: записи 0x4352/0x4357/0x4358/0x4359/0x4365/0x4356 — это, похоже, номера чипов,
    а не PCI device id; сверить, прежде чем на них опираться.
+
+## Готово без железа (host-тесты: `scripts/run_host_tests.sh`)
+- `Chanspec.hpp` — d11n/d11ac (4360/43602/4350 = AC).
+- `WlcCodec.hpp` — escan, ext join (72 B), bsscfg-iovar, WSEC_PMK (132 B), bss_info v109, escan_result, event_msg, синтетический beacon.
+- `Msgbuf.hpp` — структуры msgbuf, commonring, shared RAM, план колец/индексов.
+- `Nvram.hpp` — nvram txt -> blob + токен длины.
+
+## Осталось для `MsgbufTransport` (нужно железо / IOKit)
+1. BAR0/BAR2 окна, сброс ARM-ядра, загрузка fw в TCM, nvram в конец RAM, поиск shared-адреса.
+2. DMA-буферы колец и host-индексов, doorbell и маска прерываний PCIe-ядра.
+3. ioctl/event/rxpost циклы поверх `Msgbuf.hpp`, flowring create, tx/rx в net80211.
