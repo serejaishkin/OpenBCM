@@ -126,7 +126,9 @@ public:
     void bcm_wlc_poll_d2h();   // drain olmsg RX and process WLC events
     void bcm_wlc_d2h_msg(const OlControlMessage *msg);  // parse one D2H message
     void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,
-                             uint32_t ssid_len, int8_t rssi); // inject scan result
+                             uint32_t ssid_len, int8_t rssi, uint8_t chan,
+                             uint16_t capability, uint16_t beaconPeriod,
+                             const UInt8 *ies, uint32_t ieLen); // inject scan result
 
     // D11 dma64 rings (real IOKit DMA, constructed in enable()).
     Dma64RxRing *mRxRing {nullptr};

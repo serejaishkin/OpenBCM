@@ -13,6 +13,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  host-tests:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run host tests
+        run: scripts/run_host_tests.sh
+
   build:
     name: ${{ matrix.platform }} (${{ matrix.configuration }})
     runs-on: macos-15-intel

@@ -26,6 +26,8 @@
 
 #include "ItlBcm.hpp"
 #include "WlcDefs.hpp"
+#include "WlcCodec.hpp"
+#include "Chanspec.hpp"
 
 #include <string.h>
 #include <cstdio>
@@ -325,53 +327,23 @@ bcm_wlc_send_iovar_set(const char *name, const void *buf, UInt32 len)
 void ItlBcm::
 bcm_wlc_scan_channels(const uint8_t *channels, uint32_t count)
 {
-    // Build escan iovar payload:
-    // [u32 version=1][u16 action=1][u16 sync_id=0x1234][scan_params]
-    // scan_params: ssid_le{u32 len; u8[32]} bssid[6] bss_type(s8;2=ANY)
-    //   scan_type(u8) nprobes(-1) active_time(-1) passive_time(-1)
-    //   home_time(-1) channel_num chanspec_list[u16...]
+    // iovar "escan": see WlcCodec.hpp::buildEscanPayload. BCM4360/43602/4350
+    // are 802.11ac cores -> d11ac chanspec layout.
+    uint16_t chspecs[64];
+    if (count > 64) count = 64;
+    for (uint32_t i = 0; i < count; i++)
+        chspecs[i] = bcm::chanspec::encode20(bcm::chanspec::Io::kD11ac, channels[i]);
     UInt8 payload[512];
-    UInt8 *p = payload;
-    UInt32 version = 1;
-    UInt16 action = wlc::ESCAN_ACTION_START;
-    UInt16 sync_id = mWlcScanSeq++;
-    UInt8 bss_type_s8 = 2; // ANY
-    UInt8 scan_type_u8 = (UInt8)wlc::SCANTYPE_ACTIVE;
-    UInt32 negOne = 0xFFFFFFFF;
-    UInt32 channel_num = count;
-
-    memcpy(p, &version, 4); p += 4;
-    memcpy(p, &action, 2); p += 2;
-    memcpy(p, &sync_id, 2); p += 2;
-    // ssid_le: len=0 (broadcast), ssid[32] zero
-    UInt32 ssidLen = 0;
-    memcpy(p, &ssidLen, 4); p += 4;
-    UInt8 ssid[32] = {0};
-    memcpy(p, ssid, 32); p += 32;
-    // bssid (broadcast)
-    UInt8 bcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    memcpy(p, bcast, 6); p += 6;
-    // bss_type (s8 = 2)
-    memcpy(p, &bss_type_s8, 1); p += 1;
-    // scan_type (u8)
-    memcpy(p, &scan_type_u8, 1); p += 1;
-    // nprobes, active_time, passive_time, home_time (-1)
-    memcpy(p, &negOne, 4); p += 4;
-    memcpy(p, &negOne, 4); p += 4;
-    memcpy(p, &negOne, 4); p += 4;
-    memcpy(p, &negOne, 4); p += 4;
-    // channel_num
-    memcpy(p, &channel_num, 4); p += 4;
-    // chanspec list
-    for (uint32_t i = 0; i < count; i++) {
-        uint16_t chspec = wlc::ch20_chspec_d11n(channels[i]);
-        memcpy(p, &chspec, 2); p += 2;
+    UInt16 syncId = (UInt16)mWlcScanSeq++;
+    size_t n = wlc::codec::buildEscanPayload(payload, sizeof(payload),
+        wlc::ESCAN_ACTION_START, syncId, chspecs, count, nullptr, 0,
+        wlc::SCANTYPE_ACTIVE);
+    if (!n) {
+        XYLog("%s: escan payload does not fit (%u channels)\n", __FUNCTION__, count);
+        return;
     }
-    UInt32 payloadLen = (UInt32)(p - payload);
-
-    bcm_wlc_send_iovar_set("escan", payload, payloadLen);
-    XYLog("%s: escan sent (%u channels, seq=%u)\n",
-          __FUNCTION__, count, sync_id);
+    bcm_wlc_send_iovar_set("escan", payload, (UInt32)n);
+    XYLog("%s: escan sent (%u channels, sync_id=%u)\n", __FUNCTION__, count, syncId);
 }
 
 void ItlBcm::
@@ -410,15 +382,16 @@ bcm_wlc_join(const char *ssid, uint32_t ssid_len, const UInt8 *bssid)
             wpa2 ? wlc::WPA2_AUTH_PSK : wlc::WPA_AUTH_PSK);
         bcm_wlc_send_bsscfg_set("auth", 0);            // open system
         bcm_wlc_send_bsscfg_set("wsec", wsec);
+        // Association-request RSN IE (brcmf_fil_iovar_data_set "wpaie").
+        // TODO(HW): confirm ni_rsnie_tlv carries element id + length.
+        if (ni && ni->ni_rsnie_tlv && ni->ni_rsnie_tlv_len)
+            bcm_wlc_send_iovar_set("wpaie", ni->ni_rsnie_tlv, ni->ni_rsnie_tlv_len);
         UInt32 one = 1;
         bcm_wlc_send_iovar_set("sup_wpa", &one, sizeof(one));
-        // brcmf_wsec_pmk_le { le16 key_len; le16 flags; u8 key[64]; }
-        UInt8 pmk[68] = {0};
-        UInt16 klen = 32, kflags = 0;                  // raw PSK, not passphrase
-        memcpy(pmk, &klen, 2);
-        memcpy(pmk + 2, &kflags, 2);
-        memcpy(pmk + 4, ic->ic_psk, 32);
-        bcm_wlc_send_ioctl(wlc::C_SET_WSEC_PMK, pmk, sizeof(pmk));
+        // brcmf_wsec_pmk_le { le16 key_len; le16 flags; u8 key[128]; } = 132 B
+        UInt8 pmk[wlc::codec::kWsecPmkSize];
+        size_t pl = wlc::codec::buildWsecPmk(pmk, sizeof(pmk), ic->ic_psk, 32, false);
+        bcm_wlc_send_ioctl(wlc::C_SET_WSEC_PMK, pmk, (UInt32)pl);
         memset(pmk, 0, sizeof(pmk));
     } else {
         bcm_wlc_send_bsscfg_set("wpa_auth", wlc::WPA_AUTH_DISABLED);
@@ -426,24 +399,14 @@ bcm_wlc_join(const char *ssid, uint32_t ssid_len, const UInt8 *bssid)
         bcm_wlc_send_bsscfg_set("wsec", 0);
     }
 
-    // ---- bsscfg "join": brcmf_ext_join_params_le, natural alignment ----
-    //   0  ssid_le   {le32 len; u8 ssid[32]}                      (36)
-    //   36 scan_le   {u8 type; pad3; le32 nprobes,active,passive,home} (20)
-    //   56 assoc_le  {u8 bssid[6]; pad2; le32 chanspec_num; ...}   (12)
-    UInt8 ej[68];
-    memset(ej, 0, sizeof(ej));
-    memcpy(ej, &len, 4);
-    memcpy(ej + 4, ssid, len);
-    ej[36] = 0xFF;                                      // scan_type = -1
-    UInt32 negOne = 0xFFFFFFFF;
-    for (int k = 0; k < 4; k++)
-        memcpy(ej + 40 + 4 * k, &negOne, 4);            // nprobes..home = -1
-    if (bssid)
-        memcpy(ej + 56, bssid, 6);
-    else
-        memset(ej + 56, 0xFF, 6);
-    // chanspec_num = 0: firmware picks the channel from the BSSID/SSID scan.
-    bcm_wlc_send_iovar_set("join", ej, sizeof(ej));
+    // ---- bsscfg "join": brcmf_ext_join_params_le (72 B, see WlcCodec.hpp) ----
+    // Linux sends it with brcmf_fil_bsscfg_data_set(): "bsscfg:join" + le32
+    // bsscfg index (0) + params.
+    UInt8 ej[4 + wlc::codec::kExtJoinFixed + 4];
+    wlc::codec::put32(ej, 0);
+    size_t ejLen = wlc::codec::buildExtJoin(ej + 4, sizeof(ej) - 4, (const UInt8 *)ssid,
+                                            len, bssid, nullptr, 0);
+    bcm_wlc_send_iovar_set("bsscfg:join", ej, (UInt32)(4 + ejLen));
     XYLog("%s: join sent (ssid=%.*s, %s)\n", __FUNCTION__, (int)len, ssid,
           secure ? "PSK" : "open");
 
@@ -495,92 +458,55 @@ bcm_wlc_d2h_msg(const OlControlMessage *msg)
 
     switch (id) {
     case wlc::E_ESCAN_RESULT: {
-        // escan_result_le: u32 buflen, u32 version, u16 sync_id, u16 bss_count,
-        //   bss_info_le{...}
-        if (len < 12) break;
-        UInt32 buflen, version;
-        UInt16 sync_id, bss_count;
-        memcpy(&buflen, payload, 4);
-        memcpy(&version, payload + 4, 4);
-        memcpy(&sync_id, payload + 8, 2);
-        memcpy(&bss_count, payload + 10, 2);
+        wlc::codec::EscanResult er;
+        if (!wlc::codec::parseEscanResult(payload, len, &er)) break;
         XYLog("%s: ESCAN_RESULT buflen=%u version=%u sync_id=%u bss_count=%u\n",
-              __FUNCTION__, buflen, version, sync_id, bss_count);
-
-        const UInt8 *bss = payload + 12;
-        for (UInt16 i = 0; i < bss_count; i++) {
-            // Each bss_info is variable length. Read bss_info len at offset 0
-            // of each bss_info entry: first u32 is length of this info block.
-            if (bss + 4 > payload + len)
+              __FUNCTION__, er.bufLen, er.version, er.syncId, er.bssCount);
+        const UInt8 *rec = er.bssData;
+        size_t left = er.bssAvail;
+        for (UInt16 i = 0; i < er.bssCount; i++) {
+            wlc::codec::BssInfo bi;
+            if (!wlc::codec::parseBssInfo(rec, left, &bi)) {
+                XYLog("%s: bad bss_info record %u\n", __FUNCTION__, i);
                 break;
-            UInt32 infoLen;
-            memcpy(&infoLen, bss, 4);
-            if (infoLen == 0 || bss + infoLen > payload + len)
-                break;
-            // Parse bss_info_le:
-            //   u16 chanspec, u16 channel, u16 bss_type, u8 bssid[6],
-            //   u8 ssid_len, u8 ssid[32], s8 rssi, ...
-            const UInt8 *b = bss;
-            UInt16 chanspec;
-            memcpy(&chanspec, b, 2); b += 2;
-            UInt16 channel;
-            memcpy(&channel, b, 2); b += 2;
-            UInt16 bssType;
-            memcpy(&bssType, b, 2); b += 2;
-            UInt8 bssid[6];
-            memcpy(bssid, b, 6); b += 6;
-            UInt8 ssidLen = *b; b += 1;
-            UInt8 ssid[33] = {0};
-            if (ssidLen > 32) ssidLen = 32;
-            memcpy(ssid, b, ssidLen); b += ssidLen;
-            // Align to 4 bytes after ssid
-            uint32_t pad = (4 - (ssidLen % 4)) % 4;
-            b += pad;
-            // rssi is s8 at some offset; skip to rssi field
-            // brcmf_scan_info: ... rssi at offset 0x30 roughly
-            int8_t rssi = -50;
-            // Try to read RSSI from a common offset
-            if (b + 1 <= payload + len) {
-                // rssi is often at offset ~0x38 or later; try a safe scan
-                for (int k = 0; k < 16 && b + k + 1 <= payload + len; k++) {
-                    int8_t cand = *(b + k);
-                    if (cand < -20 && cand > -100) {
-                        rssi = cand;
-                        break;
-                    }
-                }
             }
-            bcm_wlc_scan_result(bssid, ssid, ssidLen, rssi);
-            bss += infoLen;
+            uint8_t chan = bi.ctlCh ? bi.ctlCh :
+                bcm::chanspec::controlChannel(bcm::chanspec::Io::kD11ac, bi.chanspec);
+            bcm_wlc_scan_result(bi.bssid, bi.ssid, bi.ssidLen, (int8_t)bi.rssi,
+                                chan, bi.capability, bi.beaconPeriod, bi.ies, bi.ieLen);
+            rec += bi.recordLen;
+            left -= bi.recordLen;
         }
-        if (bss_count == 0) {
-            // Scan done with no results
-            bcm_scan_done();
-        }
+        if (er.bssCount == 0)
+            bcm_scan_done();     // empty result = scan finished
         break;
     }
-    case wlc::E_PSK_SUP: {
-        // PSK supplicant status: status=6 means PTK done (connected)
-        if (len >= 4) {
-            UInt32 status;
-            memcpy(&status, payload, 4);
-            XYLog("%s: E_PSK_SUP status=%u\n", __FUNCTION__, status);
-            if (status == 6 && isFullmac()) {
-                // PTK done -> association complete
-                bcm_fullmac_link_event(true);
-            }
-        }
-        break;
-    }
+    case wlc::E_PSK_SUP:
     case wlc::E_LINK: {
-        // Link status: bit0 = up
-        if (len >= 4) {
-            UInt32 status;
+        // Prefer the real event layout (brcmf_event_msg_be). If the olmsg
+        // payload is instead a bare u32 status (earlier hypothesis), fall back
+        // to that. TODO(HW): confirm which one the dlimage emits.
+        wlc::codec::EventMsg ev;
+        bool haveMsg = wlc::codec::parseEventMsg(payload, len, &ev) &&
+                       ev.eventType == id;
+        uint32_t status = 0;
+        bool linkUp = false;
+        if (haveMsg) {
+            status = ev.status;
+            linkUp = (ev.flags & wlc::codec::kEventFlagLink) != 0;
+        } else if (len >= 4) {
             memcpy(&status, payload, 4);
-            XYLog("%s: E_LINK status=%u\n", __FUNCTION__, status);
-            if (isFullmac() && !(status & 1))
-                bcm_fullmac_link_event(false);
+            linkUp = (status & 1) != 0;
+        } else {
+            break;
         }
+        XYLog("%s: event %u status=%u link=%d (%s)\n", __FUNCTION__, id, status,
+              (int)linkUp, haveMsg ? "event_msg" : "u32");
+        if (!isFullmac()) break;
+        if (id == wlc::E_PSK_SUP && status == wlc::codec::kPskSupKeyed)
+            bcm_fullmac_link_event(true);          // 4-way handshake complete
+        else if (id == wlc::E_LINK && !linkUp)
+            bcm_fullmac_link_event(false);
         break;
     }
     case wlc::E_SCAN_COMPLETE:
@@ -595,52 +521,30 @@ bcm_wlc_d2h_msg(const OlControlMessage *msg)
 }
 
 void ItlBcm::
-bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid, uint32_t ssid_len, int8_t rssi)
+bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid, uint32_t ssid_len,
+                    int8_t rssi, uint8_t chan, uint16_t capability,
+                    uint16_t beaconPeriod, const UInt8 *ies, uint32_t ieLen)
 {
-    // Inject a scanned AP into net80211 ic_tree via a fake beacon frame.
-    struct ieee80211com *ic = &com.sc_ic;
-    struct _ifnet *ifp = IC2IFP(ic);
-
-    // Build a minimal beacon frame: FC, duration, DA=broadcast, SA=bssid,
-    // BSSID=bssid, seq, timestamp, beacon interval, cap info, SSID IE.
-    struct {
-        UInt16 fc;        // 0x8000 beacon
-        UInt16 dur;       // 0
-        UInt8   da[6];    // ff:ff:ff:ff:ff:ff
-        UInt8   sa[6];    // bssid
-        UInt8   bssid[6]; // bssid
-        UInt16  seq;      // 0
-        UInt64  ts;       // timestamp
-        UInt16  bi;       // beacon interval
-        UInt16  cap;      // capabilities
-        UInt8   ssid_ie[2]; // 0x00, len
-        UInt8   ssid[32];
-    } __attribute__((packed)) frame;
-
-    memset(&frame, 0, sizeof(frame));
-    frame.fc = 0x8000; // beacon
-    memcpy(frame.da, "\xff\xff\xff\xff\xff\xff", 6);
-    memcpy(frame.sa, bssid, 6);
-    memcpy(frame.bssid, bssid, 6);
-    frame.bi = 100;
-    frame.cap = 0x0401; // ESS + privacy
-    frame.ssid_ie[0] = 0x00; // SSID IE
-    frame.ssid_ie[1] = (UInt8)ssid_len;
-    memcpy(frame.ssid, ssid, ssid_len);
-
-    size_t frameLen = sizeof(frame) - 32 + ssid_len;
-
-    // Allocate mbuf, copy frame data
-    mbuf_t m = mbuf_alloc(MBUF_WAITOK, MBUF_TYPE_DATA);
-    if (!m) {
-        XYLog("%s: mbuf_alloc failed\n", __FUNCTION__);
+    // Inject a firmware-reported BSS into net80211's node tree as a beacon.
+    UInt8 frame[wlc::codec::kBeaconHdr + 1024];
+    if (ieLen > 1024) ies = nullptr, ieLen = 0;
+    size_t frameLen = wlc::codec::buildBeacon(frame, sizeof(frame), bssid, ssid,
+        (UInt8)ssid_len, capability, beaconPeriod, ies, ieLen);
+    if (!frameLen) {
+        XYLog("%s: beacon build failed\n", __FUNCTION__);
         return;
     }
-    mbuf_setdata(m, &frame, frameLen);
+    mbuf_t m = nullptr;
+    unsigned int maxChunks = 1;
+    mbuf_allocpacket(MBUF_DONTWAIT, frameLen, &maxChunks, &m);
+    if (!m) {
+        XYLog("%s: mbuf alloc failed\n", __FUNCTION__);
+        return;
+    }
     mbuf_setlen(m, frameLen);
     mbuf_pkthdr_setlen(m, frameLen);
-
-    bcm_rx_input(m, rssi, 0); // chan unknown yet
+    memcpy(mbuf_data(m), frame, frameLen);
+    bcm_rx_input(m, rssi, chan);     // takes ownership of m
 }
 
 // ---------------------------------------------------------------------------
