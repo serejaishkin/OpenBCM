@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Embed FullMAC firmware (.bin) and board nvram (.txt) into the kext.
-usage: gen_fullmac_arrays.py <fw.bin> <nvram.txt> [out.cpp]
+usage: gen_fullmac_arrays.py [fw.bin nvram.txt [out.cpp]]
+defaults: firmware/fullmac/brcmfmac43602-pcie.bin + firmware/fullmac/brcmfmac43602-pcie.txt
 Then rebuild the kext; no files need to live on disk at runtime (OpenCore-friendly)."""
 import sys, os
-fw, nv = sys.argv[1], sys.argv[2]
+root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "firmware", "fullmac")
+fw = sys.argv[1] if len(sys.argv) > 2 else os.path.join(root, "brcmfmac43602-pcie.bin")
+nv = sys.argv[2] if len(sys.argv) > 2 else os.path.join(root, "brcmfmac43602-pcie.txt")
 out = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(__file__), "..", "itlwm", "hal_bcm", "FullmacFwArrays.cpp")
 def arr(name, data):
     rows = []
