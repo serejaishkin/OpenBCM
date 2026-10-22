@@ -24,6 +24,7 @@ struct Dma {
     void    *va {nullptr};
     uint64_t bus {0};
     size_t   len {0};
+    void    *priv {nullptr};     // host-owned handle (e.g. IOBufferMemoryDescriptor)
 };
 
 enum class IoctlState : uint8_t { kIdle, kPending, kDone };

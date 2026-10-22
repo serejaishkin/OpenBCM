@@ -38,3 +38,11 @@
 1. BAR0/BAR2 окна, сброс ARM-ядра, загрузка fw в TCM, nvram в конец RAM, поиск shared-адреса.
 2. DMA-буферы колец и host-индексов, doorbell и маска прерываний PCIe-ядра.
 3. ioctl/event/rxpost циклы поверх `Msgbuf.hpp`, flowring create, tx/rx в net80211.
+
+## Update: transport glue written (untested on hardware)
+- `Erom.hpp` — EROM/DMP scan (host-tested).
+- `FullmacPcie.hpp` — IOKit glue: BAR0 regs + BAR2 TCM + cfg window, DMA via IOBufferMemoryDescriptor,
+  bring-up → fw/nvram download → shared RAM → common rings (TCM indices) → msgbuf::Engine, polled
+  mailbox, synchronous `ioctl()`. Syntax-checked against stub headers only.
+- Still to do: hook `Pcie::start()` into ItlBcm fullmac attach (fw/nvram loading, 43ba personality),
+  replace WLC calls with `Pcie::ioctl` (WLC_GET/SET_VAR = 262/263), then flowrings + rxpost data path.
