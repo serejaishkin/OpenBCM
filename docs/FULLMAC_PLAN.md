@@ -46,3 +46,15 @@
   mailbox, synchronous `ioctl()`. Syntax-checked against stub headers only.
 - Still to do: hook `Pcie::start()` into ItlBcm fullmac attach (fw/nvram loading, 43ba personality),
   replace WLC calls with `Pcie::ioctl` (WLC_GET/SET_VAR = 262/263), then flowrings + rxpost data path.
+
+## Update: ItlBcm integration
+- `ItlBcm::attach` branches on `isFullmac()` → `fullmac_attach()` (loads `FirmwareFile` + same-name `.txt`
+  nvram via the bundle/filesystem loader, runs `fullmac::Pcie::start`), then `cur_etheraddr` → `ic_myaddr`.
+- `bcm_wlc_send_ioctl/iovar_set` and `bcm_wlc_poll_d2h` route to msgbuf when `mFm` is set; events go
+  through the shared `bcm_wlc_handle_event`.
+- New plist personality `BCM43602-Fullmac` (probe score 72000, beats the softmac `BCM43602` at 71000).
+  To force softmac, lower its score or remove it.
+- Put `brcmfmac43602-pcie.bin` and `brcmfmac43602-pcie.txt` (board nvram) in
+  `/Library/Extensions/OpenBCM.kext/Contents/Resources/Firmware/` or `/Library/Extensions/OpenBCM/Firmware/`.
+- Caveat: `Pcie::ioctl` polls synchronously and may deliver events (escan results) re-entrantly from within a send.
+- Not yet: TX/RX data path (flowrings, rxpost) — frames are dropped, so no traffic until that lands.

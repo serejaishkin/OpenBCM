@@ -50,6 +50,9 @@
 #include "Dma64RxRing.hpp"
 #include "Dma64TxRing.hpp"
 #include "WlcDefs.hpp"
+#include "WlcCodec.hpp"
+
+namespace fullmac { class Pcie; }
 
 struct bcm_node {
     struct ieee80211_node ni;
@@ -125,6 +128,13 @@ public:
     void bcm_wlc_send_bsscfg_set(const char *name, UInt32 value);
     void bcm_wlc_poll_d2h();   // drain olmsg RX and process WLC events
     void bcm_wlc_d2h_msg(const OlControlMessage *msg);  // parse one D2H message
+    // Shared event handler. `ev` is non-null when the header was already parsed
+    // (msgbuf path: payload = event data); null for olmsg (payload may embed it).
+    void bcm_wlc_handle_event(uint32_t id, const UInt8 *payload, UInt32 len,
+                              const wlc::codec::EventMsg *ev);
+    static void s_fm_event(void *ctx, const wlc::codec::EventMsg &ev);
+    bool fullmac_attach(IOPCIDevice *device);
+    void fullmac_set_mac();
     void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,
                              uint32_t ssid_len, int8_t rssi, uint8_t chan,
                              uint16_t capability, uint16_t beaconPeriod,
@@ -189,6 +199,7 @@ private:
     bcm_softc com;
     ChipConfigurator cfg;
     BcdcOlTransport ol;
+    fullmac::Pcie *mFm {nullptr};        // FullMAC msgbuf transport (fullmac personalities)
     const ChipDescriptor *descriptor {nullptr};
     ChipDescriptor mDescriptor {};       // owned copy: table entry + personality override
     ChipDeviceConfig mDeviceConfig {};   // personality overrides from Info.plist

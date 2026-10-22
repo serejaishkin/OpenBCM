@@ -25,6 +25,7 @@
  */
 
 #include "ItlBcm.hpp"
+#include "FullmacPcie.hpp"
 #include "WlcDefs.hpp"
 #include "WlcCodec.hpp"
 #include "Chanspec.hpp"
@@ -284,6 +285,14 @@ bcm_tx_start(struct _ifnet *ifp)
 void ItlBcm::
 bcm_wlc_send_ioctl(uint32_t cmd, const void *buf, UInt32 len)
 {
+    if (mFm) {
+        int16_t st = 0;
+        if (len > 0xFFFF || !mFm->ioctl(cmd, buf, (uint16_t)len, nullptr, 0, &st))
+            XYLog("%s: fullmac ioctl %u failed\n", __FUNCTION__, cmd);
+        else if (st)
+            XYLog("%s: fullmac ioctl %u firmware status %d\n", __FUNCTION__, cmd, st);
+        return;
+    }
     // Build olmsg message: {id=cmd, seq, payloadLen, payload[]}
     UInt8 msgBuf[2048];
     if (len > sizeof(msgBuf) - sizeof(UInt32) * 3) {
@@ -303,6 +312,13 @@ bcm_wlc_send_ioctl(uint32_t cmd, const void *buf, UInt32 len)
 void ItlBcm::
 bcm_wlc_send_iovar_set(const char *name, const void *buf, UInt32 len)
 {
+    if (mFm) {
+        UInt8 payload[2048];
+        size_t n = wlc::codec::buildIovar(payload, sizeof(payload), name, buf, len);
+        if (!n) { XYLog("%s: iovar %s too large\n", __FUNCTION__, name); return; }
+        bcm_wlc_send_ioctl(wlc::C_SET_VAR, payload, (UInt32)n);
+        return;
+    }
     // Build iovar set message: id=C_SET_VAR(263), payload="name\0"+data
     UInt32 nameLen = (UInt32)strlen(name) + 1;
     UInt32 totalLen = nameLen + len;
@@ -429,6 +445,7 @@ bcm_wlc_join_legacy(const char *ssid, uint32_t ssid_len)
 void ItlBcm::
 bcm_wlc_poll_d2h()
 {
+    if (mFm) { mFm->poll(); return; }
     if (!ol.isRunning())
         return;
     // Drain olmsg RX ring and process WLC events.
@@ -448,13 +465,22 @@ s_wlc_d2h_sink(void *ctx, const OlControlMessage *msg)
 void ItlBcm::
 bcm_wlc_d2h_msg(const OlControlMessage *msg)
 {
-    UInt32 id = msg->id;
-    UInt32 seq = msg->seq;
-    UInt32 len = msg->payloadLen;
-    const UInt8 *payload = msg->payload;
+    bcm_wlc_handle_event(msg->id, msg->payload, msg->payloadLen, nullptr);
+}
 
-    XYLog("%s: D2H event id=0x%x (%u) seq=%u len=%u\n",
-          __FUNCTION__, id, id, seq, len);
+void ItlBcm::
+s_fm_event(void *ctx, const wlc::codec::EventMsg &ev)
+{
+    ItlBcm *self = static_cast<ItlBcm *>(ctx);
+    if (self)
+        self->bcm_wlc_handle_event(ev.eventType, ev.data, (UInt32)ev.dataAvail, &ev);
+}
+
+void ItlBcm::
+bcm_wlc_handle_event(uint32_t id, const UInt8 *payload, UInt32 len,
+                     const wlc::codec::EventMsg *evIn)
+{
+    XYLog("%s: D2H event id=0x%x (%u) len=%u\n", __FUNCTION__, id, id, len);
 
     switch (id) {
     case wlc::E_ESCAN_RESULT: {
@@ -487,8 +513,9 @@ bcm_wlc_d2h_msg(const OlControlMessage *msg)
         // payload is instead a bare u32 status (earlier hypothesis), fall back
         // to that. TODO(HW): confirm which one the dlimage emits.
         wlc::codec::EventMsg ev;
-        bool haveMsg = wlc::codec::parseEventMsg(payload, len, &ev) &&
-                       ev.eventType == id;
+        bool haveMsg;
+        if (evIn) { ev = *evIn; haveMsg = true; }
+        else haveMsg = wlc::codec::parseEventMsg(payload, len, &ev) && ev.eventType == id;
         uint32_t status = 0;
         bool linkUp = false;
         if (haveMsg) {
@@ -945,6 +972,65 @@ bcm_host_scan_start()
 // ---------------------------------------------------------------------------
 
 bool ItlBcm::
+fullmac_attach(IOPCIDevice *device)
+{
+    const char *fwName = mDeviceConfig.firmwareResourceName;
+    if (!fwName[0]) {
+        XYLog("bcm: fullmac needs FirmwareFile in the personality\n");
+        return false;
+    }
+    char nvName[128];
+    snprintf(nvName, sizeof(nvName), "%s", fwName);
+    size_t nl = strlen(nvName);
+    if (nl > 4 && strcmp(nvName + nl - 4, ".bin") == 0)
+        strlcpy(nvName + nl - 4, ".txt", sizeof(nvName) - (nl - 4));
+    else
+        strlcat(nvName, ".txt", sizeof(nvName));
+
+    const UInt8 *fw = nullptr, *nv = nullptr;
+    IOByteCount fwLen = 0, nvLen = 0;
+    if (!cfg.requestFirmwareByName(fwName, &fw, &fwLen)) {
+        XYLog("bcm: fullmac firmware '%s' not found\n", fwName);
+        return false;
+    }
+    if (!cfg.requestFirmwareByName(nvName, &nv, &nvLen)) {
+        XYLog("bcm: fullmac nvram '%s' not found (board file required)\n", nvName);
+        return false;
+    }
+    mFm = new fullmac::Pcie();
+    if (!mFm) return false;
+    fullmac::Pcie::Config fc;
+    fc.fw = fw; fc.fwLen = fwLen;
+    fc.nvram = nv; fc.nvLen = nvLen;
+    fc.chipId = com.sc_chipnumber;
+    int rc = mFm->start(device, fc, &ItlBcm::s_fm_event, this);
+    if (rc) {
+        XYLog("bcm: fullmac start failed at step %d\n", rc);
+        delete mFm;
+        mFm = nullptr;
+        return false;
+    }
+    XYLog("bcm: fullmac firmware up (%s + %s)\n", fwName, nvName);
+    return true;
+}
+
+void ItlBcm::
+fullmac_set_mac()
+{
+    UInt8 req[32], mac[32] = {0};
+    size_t n = wlc::codec::buildIovar(req, sizeof(req), "cur_etheraddr", nullptr, 0);
+    int16_t st = 0;
+    bool ok = n && mFm->ioctl(wlc::C_GET_VAR, req, (uint16_t)n, mac, sizeof(mac), &st) && st == 0;
+    bool valid = ok && !(mac[0] & 1) && (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]);
+    if (!valid) {
+        XYLog("bcm: cur_etheraddr unavailable, using locally administered fallback\n");
+        memcpy(mac, cfg.getMacAddress(), 6);
+    }
+    memcpy(com.sc_ic.ic_myaddr, mac, 6);
+    XYLog("bcm: MAC %02x:%02x:%02x:%02x:%02x:%02x\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+bool ItlBcm::
 attach(IOPCIDevice *device)
 {
     XYLog("%s\n", __PRETTY_FUNCTION__);
@@ -994,6 +1080,20 @@ attach(IOPCIDevice *device)
           isFullmac() ? "fullmac" : "softmac");
     cfg.setChipDescriptor(descriptor);
 
+    if (isFullmac()) {
+        // FullMAC: Linux brcmfmac firmware over PCIe msgbuf; no olmsg/dlimage/D11 rings.
+        if (!fullmac_attach(device))
+            return false;
+        fullmac_set_mac();
+        com.sc_fwver = "brcmfmac-fullmac";
+        if (!init80211()) {
+            XYLog("bcm: net80211 attach failed\n");
+            return false;
+        }
+        com.sc_attached = true;
+        return true;
+    }
+
     const UInt8 *fw = nullptr;
     IOByteCount fwLen = 0;
     if (!cfg.requestFirmware(&fw, &fwLen, descriptor)) {
@@ -1038,6 +1138,7 @@ attach(IOPCIDevice *device)
     cfg.logBootReport();
 
     com.sc_fwver = "AppleBCM-AC";
+    memcpy(com.sc_ic.ic_myaddr, cfg.getMacAddress(), 6);
 
     if (!init80211()) {
         XYLog("bcm: net80211 attach failed\n");
@@ -1109,7 +1210,8 @@ releaseAll()
     mHostScanActive = false;
     mHostScanCount = 0;
     mHostScanIdx = 0;
-    ol.stop();
+    if (mFm) { mFm->stop(); delete mFm; mFm = nullptr; }
+    else ol.stop();
 }
 
 IOReturn ItlBcm::
