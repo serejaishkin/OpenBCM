@@ -52,10 +52,10 @@
   nvram via the bundle/filesystem loader, runs `fullmac::Pcie::start`), then `cur_etheraddr` → `ic_myaddr`.
 - `bcm_wlc_send_ioctl/iovar_set` and `bcm_wlc_poll_d2h` route to msgbuf when `mFm` is set; events go
   through the shared `bcm_wlc_handle_event`.
-- New plist personality `BCM43602-Fullmac` (probe score 72000, beats the softmac `BCM43602` at 71000).
-  To force softmac, lower its score or remove it.
+- The `BCM43602` personality is fullmac by default. OpenCore DeviceProperties `openbcm-mode`,
+  `openbcm-fw`, `openbcm-nvram` select mode/firmware/nvram per card (see firmware/fullmac/README.md).
 - OpenCore workflow: firmware is embedded in the kext binary. Run
-  `scripts/gen_fullmac_arrays.py brcmfmac43602-pcie.bin <board>.txt`, rebuild, inject the kext via
+  `scripts/gen_fullmac_arrays.py` (embeds firmware/fullmac/*.bin + *.txt), rebuild, inject the kext via
   config.plist as usual. No files are read from disk (disk lookup is only a fallback).
 - Caveat: `Pcie::ioctl` polls synchronously and may deliver events (escan results) re-entrantly from within a send.
 - Not yet: TX/RX data path (flowrings, rxpost) — frames are dropped, so no traffic until that lands.

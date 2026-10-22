@@ -17,6 +17,7 @@
 #include <IOKit/pci/IOPCIDevice.h>
 #include "PcieBringup.hpp"
 #include "Erom.hpp"
+#include "FullmacFwSelect.hpp"
 #include "Nvram.hpp"
 #include "Msgbuf.hpp"
 #include "MsgbufEngine.hpp"
@@ -88,6 +89,7 @@ public:
         const uint8_t *fw {nullptr};   size_t fwLen {0};
         const uint8_t *nvram {nullptr}; size_t nvLen {0};   // raw board .txt
         uint32_t chipId {pcie::kChipId43602};
+        uint32_t chipRev {0};
     };
     typedef void (*EventCb)(void *ctx, const wlc::codec::EventMsg &ev);
 
@@ -128,7 +130,8 @@ public:
         mBringup.setPassive(*cr4, d11, nd);
 
         pcie::Bringup<IoBus>::Geometry g;
-        g.ramBase = pcie::Bringup<IoBus>::ramBase(cfg.chipId);
+        g.ramBase = fwsel::ramBase(cfg.chipId, cfg.chipRev);
+        if (g.ramBase == 0xFFFFFFFF) { IOLog("OpenBCM fullmac: unknown RAM base for chip 0x%x\n", cfg.chipId); return 9; }
         g.ramSize = mBringup.cr4RamSize(*cr4);
         IOLog("OpenBCM fullmac: RAM base 0x%x size 0x%x\n", g.ramBase, g.ramSize);
 

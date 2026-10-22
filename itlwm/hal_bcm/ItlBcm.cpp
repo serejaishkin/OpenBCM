@@ -27,6 +27,9 @@
 #include "ItlBcm.hpp"
 #include "FullmacPcie.hpp"
 #include "FullmacFirmware.hpp"
+#include "FullmacFwSelect.hpp"
+#include <libkern/c++/OSData.h>
+#include <libkern/c++/OSString.h>
 #include "WlcDefs.hpp"
 #include "WlcCodec.hpp"
 #include "Chanspec.hpp"
@@ -972,42 +975,67 @@ bcm_host_scan_start()
 // ItlHalService
 // ---------------------------------------------------------------------------
 
+// OpenCore DeviceProperties land on the PCI device node; read a string property
+// (OSString, or OSData holding the raw bytes).
+static bool bcm_read_str_prop(IOPCIDevice *dev, const char *key, char *out, size_t cap)
+{
+    OSObject *o = dev->getProperty(key);
+    if (!o) return false;
+    if (OSString *str = OSDynamicCast(OSString, o)) {
+        strlcpy(out, str->getCStringNoCopy(), cap);
+        return out[0] != 0;
+    }
+    if (OSData *d = OSDynamicCast(OSData, o)) {
+        size_t n = d->getLength() < cap - 1 ? d->getLength() : cap - 1;
+        memcpy(out, d->getBytesNoCopy(), n);
+        out[n] = 0;
+        return out[0] != 0;
+    }
+    return false;
+}
+
 bool ItlBcm::
 fullmac_attach(IOPCIDevice *device)
 {
-    // Firmware + board nvram are embedded in the kext (OpenCore-injected kexts
-    // cannot rely on bundle Resources). Fallback: personality FirmwareFile + ".txt"
-    // via the bundle/filesystem loader.
-    const UInt8 *fw = nullptr, *nv = nullptr;
-    UInt32 fwLen = 0, nvLen = 0;
-    fw = bcmc_fullmac_fw(&fwLen);
-    nv = bcmc_fullmac_nvram(&nvLen);
-    if (fw && nv && fwLen && nvLen) {
-        XYLog("bcm: fullmac using embedded firmware (%u B) + nvram (%u B)\n", fwLen, nvLen);
+    // Firmware + nvram are embedded in the kext (OpenCore-injected kexts cannot rely on
+    // bundle Resources). Selection: DeviceProperties `openbcm-fw` / `openbcm-nvram`
+    // (stem names, e.g. "brcmfmac4350c2-pcie"), else auto by chip/rev like brcmfmac.
+    char prop[96], fwStem[96], nvStem[96];
+    if (bcm_read_str_prop(device, "openbcm-fw", prop, sizeof(prop))) {
+        fwsel::normalizeStem(prop, fwStem, sizeof(fwStem));
+        XYLog("bcm: fullmac firmware from device property: %s\n", fwStem);
     } else {
-        const char *fwName = mDeviceConfig.firmwareResourceName;
-        char nvName[128];
-        snprintf(nvName, sizeof(nvName), "%s", fwName);
-        size_t nl = strlen(nvName);
-        if (nl > 4 && strcmp(nvName + nl - 4, ".bin") == 0)
-            strlcpy(nvName + nl - 4, ".txt", sizeof(nvName) - (nl - 4));
-        else
-            strlcat(nvName, ".txt", sizeof(nvName));
-        IOByteCount l1 = 0, l2 = 0;
-        if (!fwName[0] || !cfg.requestFirmwareByName(fwName, &fw, &l1) ||
-            !cfg.requestFirmwareByName(nvName, &nv, &l2)) {
-            XYLog("bcm: fullmac firmware/nvram not embedded and not found on disk; "
-                  "run scripts/gen_fullmac_arrays.py and rebuild\n");
+        const char *auto_ = fwsel::stemFor(com.sc_chipnumber, com.sc_chiprev);
+        if (!auto_) {
+            XYLog("bcm: no FullMAC firmware known for chip 0x%x rev %u (set openbcm-fw)\n",
+                  com.sc_chipnumber, com.sc_chiprev);
             return false;
         }
-        fwLen = (UInt32)l1; nvLen = (UInt32)l2;
+        strlcpy(fwStem, auto_, sizeof(fwStem));
+        XYLog("bcm: fullmac firmware auto-selected: %s\n", fwStem);
     }
+    if (bcm_read_str_prop(device, "openbcm-nvram", prop, sizeof(prop)))
+        fwsel::normalizeStem(prop, nvStem, sizeof(nvStem));
+    else
+        strlcpy(nvStem, fwStem, sizeof(nvStem));
+
+    const FullmacBlob *fwb = bcmc_fullmac_find_fw(fwStem);
+    const FullmacBlob *nvb = bcmc_fullmac_find_nvram(nvStem);
+    if (!fwb || !nvb) {
+        XYLog("bcm: fullmac blobs not embedded (fw '%s' %s, nvram '%s' %s); "
+              "add files to firmware/fullmac and run scripts/gen_fullmac_arrays.py\n",
+              fwStem, fwb ? "ok" : "MISSING", nvStem, nvb ? "ok" : "MISSING");
+        return false;
+    }
+    const UInt8 *fw = fwb->data, *nv = nvb->data;
+    UInt32 fwLen = fwb->len, nvLen = nvb->len;
     mFm = new fullmac::Pcie();
     if (!mFm) return false;
     fullmac::Pcie::Config fc;
     fc.fw = fw; fc.fwLen = fwLen;
     fc.nvram = nv; fc.nvLen = nvLen;
     fc.chipId = com.sc_chipnumber;
+    fc.chipRev = com.sc_chiprev;
     int rc = mFm->start(device, fc, &ItlBcm::s_fm_event, this);
     if (rc) {
         XYLog("bcm: fullmac start failed at step %d\n", rc);
@@ -1080,6 +1108,15 @@ attach(IOPCIDevice *device)
         mDescriptor.chipType = mDeviceConfig.chipType;
     }
     mDescriptor.applyOverride(mDeviceConfig);
+    {
+        // OpenCore DeviceProperties `openbcm-mode` = fullmac | softmac overrides the personality.
+        char mode[16];
+        if (bcm_read_str_prop(device, "openbcm-mode", mode, sizeof(mode))) {
+            if (!strncasecmp(mode, "fullmac", 7)) mDescriptor.chipType = ChipType::kFullmac;
+            else if (!strncasecmp(mode, "softmac", 7)) mDescriptor.chipType = ChipType::kSoftmac;
+            XYLog("bcm: openbcm-mode property: %s\n", mode);
+        }
+    }
     descriptor = &mDescriptor;
     XYLog("bcm: chip 0x%x mode=%s\n", com.sc_chipnumber,
           isFullmac() ? "fullmac" : "softmac");

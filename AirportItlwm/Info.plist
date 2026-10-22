@@ -402,7 +402,7 @@
 			<key>ChipNumber</key>
 			<integer>43602</integer>
 			<key>ChipType</key>
-			<string>softmac</string>
+			<string>fullmac</string>
 			<key>D11CoreBase</key>
 			<integer>402669568</integer>
 			<key>FirmwareFile</key>
@@ -415,31 +415,6 @@
 			<string>0x43BA14E4</string>
 			<key>IOProbeScore</key>
 			<integer>71000</integer>
-			<key>IOProviderClass</key>
-			<string>IOPCIDevice</string>
-			<key>NeedsCortexR4</key>
-			<integer>1</integer>
-		</dict>
-		<key>BCM43602-Fullmac</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.serejaishkin.OpenBCM</string>
-			<key>ChipNumber</key>
-			<integer>43602</integer>
-			<key>ChipType</key>
-			<string>fullmac</string>
-			<key>D11CoreBase</key>
-			<integer>402669568</integer>
-			<key>FirmwareFile</key>
-			<string>brcmfmac43602-pcie.bin</string>
-			<key>FirmwareSource</key>
-			<string>bundle</string>
-			<key>IOClass</key>
-			<string>IOPCIEDeviceWrapper</string>
-			<key>IOPCIMatch</key>
-			<string>0x43BA14E4</string>
-			<key>IOProbeScore</key>
-			<integer>72000</integer>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 			<key>NeedsCortexR4</key>
