@@ -628,6 +628,9 @@ UInt32 ChipConfigurator::awaitFirmwareReady(UInt32 timeoutMs) {
 bool ChipConfigurator::
 loadFirmwareEmbedded(const char *name, const UInt8 **fw, IOByteCount *len)
 {
+    // The embedded Apple dlimage is softmac-only; never hand it out for fullmac.
+    if (mDeviceConfig.chipTypeSet && mDeviceConfig.chipType == ChipType::kFullmac)
+        return false;
     // Embedded arrays are selected by backplane chip number, not by name.
     // We map the personality name to a chipNumber if possible.
     UInt32 chipNumber = mDeviceConfig.chipNumber != 0

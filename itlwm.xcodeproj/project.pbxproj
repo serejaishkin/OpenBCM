@@ -473,6 +473,8 @@
 		BC000000000000000000000A /* ItlBcm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000009 /* ItlBcm.cpp */; };
 		BC000000000000000000000F /* Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC000000000000000000000E /* Transport.cpp */; };
 		BC0000000000000000000031 /* D11Phy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000030 /* D11Phy.cpp */; };
+		BC0000000000000000000041 /* FullmacFwArrays.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000040 /* FullmacFwArrays.cpp */; };
+		BC0000000000000000000042 /* FullmacFwArrays.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000040 /* FullmacFwArrays.cpp */; };
 		BC0000000000000000000032 /* D11Phy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000030 /* D11Phy.cpp */; };
 		BC0000000000000000000033 /* Dma64RxRing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000012 /* Dma64RxRing.cpp */; };
 		BC0000000000000000000034 /* Dma64TxRing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BC0000000000000000000014 /* Dma64TxRing.cpp */; };
@@ -1324,6 +1326,7 @@
 		BC0000000000000000000012 /* Dma64RxRing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dma64RxRing.cpp; sourceTree = "<group>"; };
 		BC0000000000000000000013 /* Dma64TxRing.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Dma64TxRing.hpp; sourceTree = "<group>"; };
 		BC0000000000000000000030 /* D11Phy.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = D11Phy.cpp; sourceTree = "<group>"; };
+		BC0000000000000000000040 /* FullmacFwArrays.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FullmacFwArrays.cpp; sourceTree = "<group>"; };
 		BC0000000000000000000014 /* Dma64TxRing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Dma64TxRing.cpp; sourceTree = "<group>"; };
 		BC0000000000000000000015 /* D11.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = D11.hpp; sourceTree = "<group>"; };
 		F800DD9A24FBEBF000789320 /* ItlDriverController.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = ItlDriverController.hpp; sourceTree = "<group>"; };
@@ -1741,6 +1744,7 @@
 				BC0000000000000000000013 /* Dma64TxRing.hpp */,
 				BC0000000000000000000014 /* Dma64TxRing.cpp */,
 				BC0000000000000000000030 /* D11Phy.cpp */,
+				BC0000000000000000000040 /* FullmacFwArrays.cpp */,
 				BC0000000000000000000015 /* D11.hpp */,
 			);
 			path = hal_bcm;
@@ -3134,6 +3138,7 @@
 				BC0000000000000000000033 /* Dma64RxRing.cpp in Sources */,
 				BC0000000000000000000034 /* Dma64TxRing.cpp in Sources */,
 				BC0000000000000000000031 /* D11Phy.cpp in Sources */,
+				BC0000000000000000000041 /* FullmacFwArrays.cpp in Sources */,
 			);
 		};
 		F897ECCA266EFF93005EE8F7 /* Sources */ = {
@@ -3535,6 +3540,7 @@
 				BC0000000000000000000021 /* Dma64RxRing.cpp in Sources */,
 				BC0000000000000000000022 /* Dma64TxRing.cpp in Sources */,
 				BC0000000000000000000032 /* D11Phy.cpp in Sources */,
+				BC0000000000000000000042 /* FullmacFwArrays.cpp in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */

@@ -54,7 +54,8 @@
   through the shared `bcm_wlc_handle_event`.
 - New plist personality `BCM43602-Fullmac` (probe score 72000, beats the softmac `BCM43602` at 71000).
   To force softmac, lower its score or remove it.
-- Put `brcmfmac43602-pcie.bin` and `brcmfmac43602-pcie.txt` (board nvram) in
-  `/Library/Extensions/OpenBCM.kext/Contents/Resources/Firmware/` or `/Library/Extensions/OpenBCM/Firmware/`.
+- OpenCore workflow: firmware is embedded in the kext binary. Run
+  `scripts/gen_fullmac_arrays.py brcmfmac43602-pcie.bin <board>.txt`, rebuild, inject the kext via
+  config.plist as usual. No files are read from disk (disk lookup is only a fallback).
 - Caveat: `Pcie::ioctl` polls synchronously and may deliver events (escan results) re-entrantly from within a send.
 - Not yet: TX/RX data path (flowrings, rxpost) — frames are dropped, so no traffic until that lands.

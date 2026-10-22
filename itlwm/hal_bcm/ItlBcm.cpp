@@ -26,6 +26,7 @@
 
 #include "ItlBcm.hpp"
 #include "FullmacPcie.hpp"
+#include "FullmacFirmware.hpp"
 #include "WlcDefs.hpp"
 #include "WlcCodec.hpp"
 #include "Chanspec.hpp"
@@ -974,28 +975,32 @@ bcm_host_scan_start()
 bool ItlBcm::
 fullmac_attach(IOPCIDevice *device)
 {
-    const char *fwName = mDeviceConfig.firmwareResourceName;
-    if (!fwName[0]) {
-        XYLog("bcm: fullmac needs FirmwareFile in the personality\n");
-        return false;
-    }
-    char nvName[128];
-    snprintf(nvName, sizeof(nvName), "%s", fwName);
-    size_t nl = strlen(nvName);
-    if (nl > 4 && strcmp(nvName + nl - 4, ".bin") == 0)
-        strlcpy(nvName + nl - 4, ".txt", sizeof(nvName) - (nl - 4));
-    else
-        strlcat(nvName, ".txt", sizeof(nvName));
-
+    // Firmware + board nvram are embedded in the kext (OpenCore-injected kexts
+    // cannot rely on bundle Resources). Fallback: personality FirmwareFile + ".txt"
+    // via the bundle/filesystem loader.
     const UInt8 *fw = nullptr, *nv = nullptr;
-    IOByteCount fwLen = 0, nvLen = 0;
-    if (!cfg.requestFirmwareByName(fwName, &fw, &fwLen)) {
-        XYLog("bcm: fullmac firmware '%s' not found\n", fwName);
-        return false;
-    }
-    if (!cfg.requestFirmwareByName(nvName, &nv, &nvLen)) {
-        XYLog("bcm: fullmac nvram '%s' not found (board file required)\n", nvName);
-        return false;
+    UInt32 fwLen = 0, nvLen = 0;
+    fw = bcmc_fullmac_fw(&fwLen);
+    nv = bcmc_fullmac_nvram(&nvLen);
+    if (fw && nv && fwLen && nvLen) {
+        XYLog("bcm: fullmac using embedded firmware (%u B) + nvram (%u B)\n", fwLen, nvLen);
+    } else {
+        const char *fwName = mDeviceConfig.firmwareResourceName;
+        char nvName[128];
+        snprintf(nvName, sizeof(nvName), "%s", fwName);
+        size_t nl = strlen(nvName);
+        if (nl > 4 && strcmp(nvName + nl - 4, ".bin") == 0)
+            strlcpy(nvName + nl - 4, ".txt", sizeof(nvName) - (nl - 4));
+        else
+            strlcat(nvName, ".txt", sizeof(nvName));
+        IOByteCount l1 = 0, l2 = 0;
+        if (!fwName[0] || !cfg.requestFirmwareByName(fwName, &fw, &l1) ||
+            !cfg.requestFirmwareByName(nvName, &nv, &l2)) {
+            XYLog("bcm: fullmac firmware/nvram not embedded and not found on disk; "
+                  "run scripts/gen_fullmac_arrays.py and rebuild\n");
+            return false;
+        }
+        fwLen = (UInt32)l1; nvLen = (UInt32)l2;
     }
     mFm = new fullmac::Pcie();
     if (!mFm) return false;
@@ -1010,7 +1015,7 @@ fullmac_attach(IOPCIDevice *device)
         mFm = nullptr;
         return false;
     }
-    XYLog("bcm: fullmac firmware up (%s + %s)\n", fwName, nvName);
+    XYLog("bcm: fullmac firmware up\n");
     return true;
 }
 
