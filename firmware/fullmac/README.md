@@ -20,3 +20,11 @@ firmware, e.g. `brcmfmac43602-pcie.txt`.
 | `openbcm-nvram` | e.g. `brcmfmac43602-pcie.apple,j137` | nvram stem (default: same stem as the firmware) |
 
 Values are plain strings (`String` type in config.plist).
+
+## Build flow (everything ends up inside the kext binary)
+Put the files you need in this folder, then just build in Xcode: the "Embed FullMAC Firmware" build phase
+(Sequoia / Sonoma14.4 / Tahoe targets) runs `scripts/gen_fullmac_arrays.py --if-changed` and embeds
+every `*.bin`/`*.txt` present. Env `OPENBCM_FW_ONLY=stem1,stem2` limits what is embedded.
+The kext bundle's `Resources` are NOT used: OpenCore injects only Info.plist + the executable,
+so firmware has to live in the binary. One kext, all supported cards; the right image is picked
+per card at attach (auto by chip/rev, or DeviceProperties `openbcm-fw`).
