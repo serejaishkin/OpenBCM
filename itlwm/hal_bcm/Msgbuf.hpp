@@ -372,6 +372,9 @@ struct RingPlan {
     bool     hostIndices {false};
     // Host index buffer layout (valid when hostIndices): byte offsets + total size.
     uint32_t hostH2dW {0}, hostH2dR {0}, hostD2hW {0}, hostD2hR {0}, hostBufSize {0};
+    // First index slot of flowring 0 (TCM address or host-buffer offset); flowring i uses
+    // start + i * idxStride for both write and read index.
+    uint32_t flowWIdxStart {0}, flowRIdxStart {0};
     RingDesc rings[kNumCommon];
 };
 
@@ -418,6 +421,8 @@ inline RingPlan planRings(const SharedInfo &sh, const DhiRingInfo &ri, bool allo
         else                   { d.wIdxAddr = d2hW; d.rIdxAddr = d2hR; d2hW += p.idxStride; d2hR += p.idxStride; }
         mem += kRingMemSz;
     }
+    p.flowWIdxStart = h2dW;
+    p.flowRIdxStart = h2dR;
     p.ok = true;
     return p;
 }

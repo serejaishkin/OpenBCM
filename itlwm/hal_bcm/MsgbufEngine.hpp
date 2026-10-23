@@ -33,6 +33,9 @@ template <class Host>
 class Engine {
 public:
     typedef void (*EventSink)(void *ctx, const wlc::codec::EventMsg &ev);
+    // Flowring create/delete completion: (ctx, wire flow ring id, status).
+    typedef void (*FlowSink)(void *ctx, uint16_t flowRingId, uint16_t status);
+    void setFlowSink(FlowSink fn, void *ctx) { mFlowSink = fn; mFlowSinkCtx = ctx; }
 
     static constexpr unsigned kMaxCtlBufs = 32;              // outstanding posted ctl buffers
     static constexpr unsigned kMaxIoctlRespBufs = 8;
@@ -212,6 +215,7 @@ private:
         case kFlowRingCreateCmplt: {
             const FlowringResp *m = (const FlowringResp *)item;
             lastFlowCreateStatus = m->compl_.status;
+            if (mFlowSink) mFlowSink(mFlowSinkCtx, m->compl_.flowRingId, m->compl_.status);
             break;
         }
         case kGenStatus: case kRingStatus: case kFlowRingDeleteCmplt:
@@ -230,6 +234,8 @@ private:
     uint32_t mRxDataOffset {0};
     EventSink mSink {nullptr};
     void *mSinkCtx {nullptr};
+    FlowSink mFlowSink {nullptr};
+    void *mFlowSinkCtx {nullptr};
     unsigned mCurIoctlResp {0}, mCurEvent {0};
     uint16_t mTransId {0};
     IoctlState mIoctl {IoctlState::kIdle};
