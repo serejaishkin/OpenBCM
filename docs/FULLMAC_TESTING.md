@@ -1,5 +1,12 @@
 # FullMAC first-boot test guide (BCM43602 and friends)
 
+## One-shot helper (on the Mac)
+    scripts/openbcm_probe.sh info    # card IDs + ACPI path for DeviceProperties
+    scripts/openbcm_probe.sh nvram   # try to dig board nvram out of Apple's Broadcom kexts -> nvram_out/
+    scripts/openbcm_probe.sh log     # kext loaded? + checklist/diagnosis of the OpenBCM log -> openbcm.log
+The nvram extraction is best-effort (it assumes Apple keeps `key=value` parameter blocks inside the
+AirPortBrcm kexts); check the printed boardtype against your card's subsystem id before using it.
+
 ## Prepare
 1. Put `brcmfmac43602-pcie.txt` (your board nvram) in `firmware/fullmac/` (the `.bin` is already there).
 2. Build the kext in Xcode (target AirportItlwm-Sequoia / Sonoma14.4 / Tahoe). The "Embed FullMAC Firmware"

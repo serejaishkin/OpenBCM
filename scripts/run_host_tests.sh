@@ -11,4 +11,6 @@ for t in tests/host/test_*.cpp; do
 done
 # Syntax-only check of the IOKit glue against stub headers (no Xcode needed).
 "$CXX" -std=c++17 -fsyntax-only -Wall -Wextra -Werror -Itests/stubs -Iitlwm/hal_bcm tests/stubs/syntax_fullmac.cpp
+
+command -v python3 >/dev/null 2>&1 && python3 -I tests/scripts/test_probe.py
 echo "all tests passed"
