@@ -11,4 +11,5 @@ struct FullmacBlob { const char *stem; const UInt8 *data; UInt32 len; };
 // nullptr when no such blob is embedded.
 const FullmacBlob *bcmc_fullmac_find_fw(const char *stem);
 const FullmacBlob *bcmc_fullmac_find_nvram(const char *stem);
+const FullmacBlob *bcmc_fullmac_find_clm(const char *stem);   // optional regulatory blob, stem == firmware stem
 #endif

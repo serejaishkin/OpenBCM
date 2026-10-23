@@ -28,6 +28,7 @@
 #include "FullmacPcie.hpp"
 #include "FullmacFirmware.hpp"
 #include "FullmacFwSelect.hpp"
+#include "FwInit.hpp"
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSString.h>
 #include "WlcDefs.hpp"
@@ -1061,6 +1062,10 @@ fullmac_attach(IOPCIDevice *device)
     }
     const UInt8 *fw = fwb->data, *nv = nvb->data;
     UInt32 fwLen = fwb->len, nvLen = nvb->len;
+    if (const FullmacBlob *clm = bcmc_fullmac_find_clm(fwStem)) {
+        mFmClm = clm->data; mFmClmLen = clm->len;
+        XYLog("bcm: fullmac CLM blob embedded (%u B)\n", mFmClmLen);
+    }
     mFm = new fullmac::Pcie();
     if (!mFm) return false;
     fullmac::Pcie::Config fc;
@@ -1078,6 +1083,21 @@ fullmac_attach(IOPCIDevice *device)
     }
     XYLog("bcm: fullmac firmware up\n");
     return true;
+}
+
+void ItlBcm::
+fullmac_preinit()
+{
+    struct FmIo {
+        fullmac::Pcie *p;
+        bool ioctl(uint32_t cmd, const void *in, uint16_t inLen, void *out, uint16_t outCap, int16_t *st) {
+            return p->ioctl(cmd, in, inLen, out, outCap, st);
+        }
+    } io{mFm};
+    fwinit::Init<FmIo> init(io);
+    fwinit::Report r = init.run(mFmClm, mFmClmLen);
+    XYLog("bcm: fullmac preinit: %u step(s) failed, clm=%d events=%d\n",
+          r.failed, (int)r.clmLoaded, (int)r.eventsSet);
 }
 
 void ItlBcm::
@@ -1160,6 +1180,7 @@ attach(IOPCIDevice *device)
         if (!fullmac_attach(device))
             return false;
         fullmac_set_mac();
+        fullmac_preinit();
         com.sc_fwver = "brcmfmac-fullmac";
         if (!init80211()) {
             XYLog("bcm: net80211 attach failed\n");

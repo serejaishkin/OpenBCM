@@ -62,3 +62,9 @@
   wired into `ItlBcm` (`bcm_tx_start` → `Pcie::transmit`, RX → `if_input` as 802.3). Polled every 2 ms for now.
 - Still to do: MSI/MSIX interrupt instead of polling, host DMA indices, CLM blob upload (`clmload`) for 4356/43570,
   key install via firmware (WSEC_PMK path already used), power save / roaming / bgscan tuning, monitor mode.
+
+## Update: firmware init
+`FwInit.hpp` (host-tested) ports brcmf_c_preinit_dcmds + brcmf_config_dongle: CLM upload (`clmload`, 1400 B chunks),
+`mpc`, `join_pref`, **`event_msgs` (without it no escan/link/PSK events are delivered)**, scan times, power save off,
+roaming, infra mode, frameburst. Run from `ItlBcm::fullmac_preinit()` right after the MAC is read.
+`*.clm_blob` files in firmware/fullmac are embedded and matched to the firmware by stem.

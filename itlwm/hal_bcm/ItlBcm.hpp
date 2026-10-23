@@ -137,6 +137,9 @@ public:
     static void s_fm_txdone(void *ctx, bool ok);
     bool fullmac_attach(IOPCIDevice *device);
     void fullmac_set_mac();
+    void fullmac_preinit();                 // CLM + event mask + roam/scan setup (fwinit::Init)
+    const UInt8 *mFmClm {nullptr};
+    UInt32 mFmClmLen {0};
     void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,
                              uint32_t ssid_len, int8_t rssi, uint8_t chan,
                              uint16_t capability, uint16_t beaconPeriod,
