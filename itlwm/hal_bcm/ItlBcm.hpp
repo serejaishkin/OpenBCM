@@ -133,6 +133,8 @@ public:
     void bcm_wlc_handle_event(uint32_t id, const UInt8 *payload, UInt32 len,
                               const wlc::codec::EventMsg *ev);
     static void s_fm_event(void *ctx, const wlc::codec::EventMsg &ev);
+    static void s_fm_rx(void *ctx, uint8_t ifidx, const uint8_t *frame, uint16_t len, uint16_t flags);
+    static void s_fm_txdone(void *ctx, bool ok);
     bool fullmac_attach(IOPCIDevice *device);
     void fullmac_set_mac();
     void bcm_wlc_scan_result(const UInt8 *bssid, const UInt8 *ssid,

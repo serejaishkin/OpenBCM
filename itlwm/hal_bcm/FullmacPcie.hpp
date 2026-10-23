@@ -21,6 +21,7 @@
 #include "Nvram.hpp"
 #include "Msgbuf.hpp"
 #include "MsgbufEngine.hpp"
+#include "MsgbufData.hpp"
 #include "WlcCodec.hpp"
 
 namespace fullmac {
@@ -92,8 +93,12 @@ public:
         uint32_t chipRev {0};
     };
     typedef void (*EventCb)(void *ctx, const wlc::codec::EventMsg &ev);
+    typedef msgbuf::DataPath<HostDma>::RxSink RxCb;          // (ctx, ifidx, 802.3 frame, len, flags)
+    typedef msgbuf::DataPath<HostDma>::TxDoneSink TxDoneCb;  // (ctx, ok)
+    // Set before start(). Frames passed to RxCb are valid only during the call.
+    void setDataSinks(RxCb rx, TxDoneCb txd, void *ctx) { mRxCb = rx; mTxDoneCb = txd; mDataCtx = ctx; }
 
-    Pcie() : mBringup(mBus), mEngine(mHost) {}
+    Pcie() : mBringup(mBus), mEngine(mHost), mData(mHost) {}
     ~Pcie() { stop(); }
 
     // Returns 0 on success, else a step number (see log) for diagnosing on hardware.
@@ -156,14 +161,21 @@ public:
 
         mP2 = *p2;
         mEventCb = cb; mEventCtx = cbCtx;
-        Msgbuf_RingInit(plan);
+        if (!Msgbuf_RingInit(plan)) return 8;
         msgbuf::Ring *rp[msgbuf::kNumCommon];
         for (int i = 0; i < msgbuf::kNumCommon; i++) rp[i] = &mRing[i];
         if (!mEngine.init(rp, sh.rxDataOffset, &Pcie::eventTrampoline, this)) return 8;
+        mEngine.setFlowSink(&Pcie::flowTrampoline, this);
+        if (!FlowRingsInit(plan)) return 10;
+        if (!mData.init(&mRing[msgbuf::kH2dControlSubmit], &mRing[msgbuf::kH2dRxpostSubmit],
+                        &mRing[msgbuf::kD2hTxComplete], &mRing[msgbuf::kD2hRxComplete],
+                        mFlowPtrs, mNFlow, sh.rxDataOffset, sh.maxRxbufpost,
+                        mRxCb, mTxDoneCb, mDataCtx)) return 11;
 
         mBringup.selectCore(*p2);                       // window stays here from now on
         mBringup.enableInterrupts(kMbIntFn0 | kMbIntD2hDb);
         mEngine.postControlBuffers();
+        mData.fillRx();
         if (sh.hostRdyDb1) mBringup.hostReady();
         mUp = true;
         return 0;
@@ -172,7 +184,12 @@ public:
     void stop() {
         if (mUp) mBringup.disableInterrupts();
         mUp = false;
+        mData.release();
         mEngine.release();
+        delete[] mFlowRing; mFlowRing = nullptr;
+        delete[] mFlowCtx; mFlowCtx = nullptr;
+        delete[] mFlowPtrs; mFlowPtrs = nullptr;
+        mNFlow = 0;
         for (int i = 0; i < msgbuf::kNumCommon; i++) if (mRingDma[i].va) mHost.freeDma(&mRingDma[i]);
         if (mBus.regMap) { mBus.regMap->release(); mBus.regMap = nullptr; }
         if (mBus.tcmMap) { mBus.tcmMap->release(); mBus.tcmMap = nullptr; }
@@ -185,6 +202,13 @@ public:
         if (s == 0xFFFFFFFF) return;                      // device gone
         if (s) mBringup.ackMailboxInt(s);
         mEngine.processControlComplete();
+        mData.processTxComplete();
+        mData.processRxComplete();
+    }
+
+    // 802.3 frame to the firmware (copied; caller may free it). False => drop.
+    bool transmit(uint8_t ifidx, const uint8_t *frame, uint16_t len, uint8_t prio) {
+        return mUp && mData.transmit(ifidx, frame, len, prio);
     }
 
     // Synchronous ioctl (polling). Returns false on timeout/ring full; *status = firmware status.
@@ -208,14 +232,33 @@ public:
     msgbuf::Engine<HostDma> &engine() { return mEngine; }
 
 private:
-    struct RingCtx { Pcie *self; uint32_t wIdx, rIdx; };
+    struct RingCtx { Pcie *self; msgbuf::Ring *ring; uint32_t wIdx, rIdx; };
 
     static void bell(void *c) { ((RingCtx *)c)->self->mBringup.ringBell0(); }
-    static void updR(void *c) { RingCtx *r = (RingCtx *)c; msgbufRing(r)->rPtr = r->self->mBus.tcmRead16(r->rIdx); }
-    static void updW(void *c) { RingCtx *r = (RingCtx *)c; msgbufRing(r)->wPtr = r->self->mBus.tcmRead16(r->wIdx); }
-    static void wrR(void *c) { RingCtx *r = (RingCtx *)c; r->self->mBus.tcmWrite16(r->rIdx, msgbufRing(r)->rPtr); }
-    static void wrW(void *c) { RingCtx *r = (RingCtx *)c; r->self->mBus.tcmWrite16(r->wIdx, msgbufRing(r)->wPtr); }
-    static msgbuf::Ring *msgbufRing(RingCtx *r) { return &r->self->mRing[r - r->self->mCtx]; }
+    static void updR(void *c) { RingCtx *r = (RingCtx *)c; r->ring->rPtr = r->self->mBus.tcmRead16(r->rIdx); }
+    static void updW(void *c) { RingCtx *r = (RingCtx *)c; r->ring->wPtr = r->self->mBus.tcmRead16(r->wIdx); }
+    static void wrR(void *c) { RingCtx *r = (RingCtx *)c; r->self->mBus.tcmWrite16(r->rIdx, r->ring->rPtr); }
+    static void wrW(void *c) { RingCtx *r = (RingCtx *)c; r->self->mBus.tcmWrite16(r->wIdx, r->ring->wPtr); }
+    static void flowTrampoline(void *ctx, uint16_t id, uint16_t status) {
+        ((Pcie *)ctx)->mData.onFlowCreate(id, status);
+    }
+
+    // Flowrings: ring objects wired to TCM index slots; storage is allocated at create time.
+    bool FlowRingsInit(const msgbuf::RingPlan &plan) {
+        mNFlow = plan.maxFlowrings;
+        if (!mNFlow) return false;
+        mFlowRing = new msgbuf::Ring[mNFlow];
+        mFlowCtx = new RingCtx[mNFlow];
+        mFlowPtrs = new msgbuf::Ring *[mNFlow];
+        if (!mFlowRing || !mFlowCtx || !mFlowPtrs) return false;
+        for (unsigned i = 0; i < mNFlow; i++) {
+            mFlowCtx[i] = RingCtx{this, &mFlowRing[i], plan.flowWIdxStart + i * plan.idxStride,
+                                  plan.flowRIdxStart + i * plan.idxStride};
+            mFlowRing[i].registerCallbacks(&bell, &updR, &updW, &wrR, &wrW, &mFlowCtx[i]);
+            mFlowPtrs[i] = &mFlowRing[i];
+        }
+        return true;
+    }
 
     static void eventTrampoline(void *ctx, const wlc::codec::EventMsg &ev) {
         Pcie *p = (Pcie *)ctx;
@@ -231,7 +274,7 @@ private:
             mBus.tcmWrite16(d.memAddr + msgbuf::kRingLenItemsOff, (uint16_t)d.itemSize);
             mBus.tcmWrite32(d.memAddr + msgbuf::kRingMemBaseAddrOff, (uint32_t)(mRingDma[i].bus & 0xffffffff));
             mBus.tcmWrite32(d.memAddr + msgbuf::kRingMemBaseAddrOff + 4, (uint32_t)(mRingDma[i].bus >> 32));
-            mCtx[i] = RingCtx{this, d.wIdxAddr, d.rIdxAddr};
+            mCtx[i] = RingCtx{this, &mRing[i], d.wIdxAddr, d.rIdxAddr};
             mRing[i].registerCallbacks(&bell, &updR, &updW, &wrR, &wrW, &mCtx[i]);
             mRing[i].config((uint16_t)d.maxItem, (uint16_t)d.itemSize, mRingDma[i].va);
         }
@@ -242,6 +285,13 @@ private:
     HostDma mHost;
     pcie::Bringup<IoBus> mBringup;
     msgbuf::Engine<HostDma> mEngine;
+    msgbuf::DataPath<HostDma> mData;
+    msgbuf::Ring *mFlowRing {nullptr}, **mFlowPtrs {nullptr};
+    RingCtx *mFlowCtx {nullptr};
+    unsigned mNFlow {0};
+    RxCb mRxCb {nullptr};
+    TxDoneCb mTxDoneCb {nullptr};
+    void *mDataCtx {nullptr};
     pcie::Core mP2;
     msgbuf::Ring mRing[msgbuf::kNumCommon];
     msgbuf::Dma mRingDma[msgbuf::kNumCommon];

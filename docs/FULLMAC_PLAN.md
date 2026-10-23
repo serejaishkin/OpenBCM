@@ -58,4 +58,7 @@
   `scripts/gen_fullmac_arrays.py` (embeds firmware/fullmac/*.bin + *.txt), rebuild, inject the kext via
   config.plist as usual. No files are read from disk (disk lookup is only a fallback).
 - Caveat: `Pcie::ioctl` polls synchronously and may deliver events (escan results) re-entrantly from within a send.
-- Not yet: TX/RX data path (flowrings, rxpost) — frames are dropped, so no traffic until that lands.
+- Data path done (untested on HW): `MsgbufData.hpp` (flowring per ifidx+AC, TX copy into DMA slots, rxpost, rx complete)
+  wired into `ItlBcm` (`bcm_tx_start` → `Pcie::transmit`, RX → `if_input` as 802.3). Polled every 2 ms for now.
+- Still to do: MSI/MSIX interrupt instead of polling, host DMA indices, CLM blob upload (`clmload`) for 4356/43570,
+  key install via firmware (WSEC_PMK path already used), power save / roaming / bgscan tuning, monitor mode.

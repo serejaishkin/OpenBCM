@@ -260,10 +260,16 @@ bcm_tx_start(struct _ifnet *ifp)
         uint32_t len = mbuf_pkthdr_len(m);
         bool sent = false;
         if (isFullmac()) {
-            // TODO(fullmac): hand 802.3 frames to the firmware data path
-            // (msgbuf TX flowring), see docs/FULLMAC_PLAN.md.
+            // if_snd carries 802.3 frames; the firmware does the 802.11 encap.
+            if (mFm && len >= 14 && len <= 2048) {
+                uint8_t frame[2048];
+                mbuf_copydata(m, 0, len, frame);
+                // IPv4 TOS -> 802.1d priority (top 3 bits); everything else best effort.
+                uint8_t prio = (frame[12] == 0x08 && frame[13] == 0x00 && len > 15) ? (frame[15] >> 5) : 0;
+                sent = mFm->transmit(0, frame, (uint16_t)len, prio);
+            }
             mbuf_freem(m);
-            ifp->if_oerrors++;
+            if (sent) ifp->if_opackets++; else ifp->if_oerrors++;
             continue;
         }
         // Bounce through a stack buffer (max 802.11 frame) into the DMA ring.
@@ -470,6 +476,32 @@ void ItlBcm::
 bcm_wlc_d2h_msg(const OlControlMessage *msg)
 {
     bcm_wlc_handle_event(msg->id, msg->payload, msg->payloadLen, nullptr);
+}
+
+void ItlBcm::
+s_fm_rx(void *ctx, uint8_t ifidx, const uint8_t *frame, uint16_t len, uint16_t flags)
+{
+    ItlBcm *self = static_cast<ItlBcm *>(ctx);
+    (void)ifidx;
+    if (!self || (flags & msgbuf::kPktFlagsFrameMask) != msgbuf::kPktFlagsFrame8023 || len < 14)
+        return;
+    struct _ifnet *ifp = &self->com.sc_ic.ic_ac.ac_if;
+    mbuf_t m = nullptr;
+    unsigned int maxChunks = 1;
+    mbuf_allocpacket(MBUF_DONTWAIT, len, &maxChunks, &m);
+    if (!m) { ifp->if_ierrors++; return; }
+    mbuf_setlen(m, len);
+    mbuf_pkthdr_setlen(m, len);
+    memcpy(mbuf_data(m), frame, len);
+    struct mbuf_list ml = MBUF_LIST_INITIALIZER();
+    ml_enqueue(&ml, m);
+    if_input(ifp, &ml);                       // 802.3 straight to the stack; no net80211 involvement
+}
+
+void ItlBcm::
+s_fm_txdone(void *ctx, bool ok)
+{
+    (void)ctx; (void)ok;                      // slot already recycled; nothing else to account
 }
 
 void ItlBcm::
@@ -1036,6 +1068,7 @@ fullmac_attach(IOPCIDevice *device)
     fc.nvram = nv; fc.nvLen = nvLen;
     fc.chipId = com.sc_chipnumber;
     fc.chipRev = com.sc_chiprev;
+    mFm->setDataSinks(&ItlBcm::s_fm_rx, &ItlBcm::s_fm_txdone, this);
     int rc = mFm->start(device, fc, &ItlBcm::s_fm_event, this);
     if (rc) {
         XYLog("bcm: fullmac start failed at step %d\n", rc);
@@ -1277,7 +1310,7 @@ enable(IONetworkInterface *netif)
                 getMainWorkLoop()->addEventSource(mWlcPollTimer);
         }
         if (mWlcPollTimer) {
-            mWlcPollTimer->setTimeoutMS(100);
+            mWlcPollTimer->setTimeoutMS(2);
             mWlcPollTimer->enable();
         }
         return kIOReturnSuccess;
@@ -1472,7 +1505,8 @@ s_wlc_poll_timer(OSObject *target, IOTimerEventSource *sender)
     self->bcm_wlc_poll_d2h();
     // Re-arm: keep polling while the interface is up.
     if (self->mWlcPollTimer && self->com.sc_running) {
-        self->mWlcPollTimer->setTimeoutMS(100);
+        // fullmac polls the msgbuf rings, so use a short period (interrupts replace this later).
+        self->mWlcPollTimer->setTimeoutMS(self->isFullmac() ? 2 : 100);
         self->mWlcPollTimer->enable();
     }
 }
