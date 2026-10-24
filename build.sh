@@ -61,32 +61,7 @@ if [ ! -d MacKernelSDK/Headers ]; then
     git -C MacKernelSDK checkout -q "$MKS_REF"
 fi
 
-find_old_sdk() {
-    for d in "$(xcode-select -p)/Platforms/MacOSX.platform/Developer/SDKs" /Library/Developer/CommandLineTools/SDKs "$HOME/.openbcm/sdk"; do
-        for f in $(ls -d "$d"/MacOSX1[1-5]*.sdk 2>/dev/null | sort -rV); do
-            case "$f" in *MacOSX.sdk) continue ;; esac
-            echo "$f"; return 0
-        done
-    done
-    return 1
-}
-if [ -z "$SDK" ]; then
-    CUR=$(xcrun --show-sdk-version 2>/dev/null | cut -d. -f1)
-    if [ -n "$CUR" ] && [ "$CUR" -gt 15 ]; then
-        echo "== Xcode SDK is $CUR.x: MacKernelSDK headers conflict with it (ffsll/fls/vm_offset_t errors)"
-        SDK=$(find_old_sdk || true)
-        if [ -z "$SDK" ]; then
-            URL=https://github.com/joseluisq/macosx-sdks/releases/download/15.0/MacOSX15.0.sdk.tar.xz
-            echo "== no SDK <= 15 installed; downloading MacOSX15.0.sdk (~60 MB) from $URL"
-            mkdir -p "$HOME/.openbcm/sdk"
-            curl -fL --progress-bar "$URL" -o "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz" || die "SDK download failed; pass -s /path/to/MacOSX15.x.sdk"
-            tar -xJf "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz" -C "$HOME/.openbcm/sdk" || die "SDK unpack failed"
-            rm -f "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz"
-            SDK=$(find_old_sdk || true)
-        fi
-        [ -n "$SDK" ] || die "could not find an SDK <= 15; pass -s /path/to/MacOSX15.x.sdk"
-    fi
-fi
+python3 scripts/patch_mackernelsdk.py MacKernelSDK   # headers vs. macOS 26 SDK (idempotent)
 if [ -n "$SDK" ]; then
     [ -d "$SDK" ] || die "SDK not found: $SDK"
     case "$SDK" in *" "*) die "SDK path must not contain spaces: $SDK" ;; esac
