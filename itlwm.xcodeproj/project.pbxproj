@@ -2733,6 +2733,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		BC0000000000000000000050 /* Embed FullMAC Firmware */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);

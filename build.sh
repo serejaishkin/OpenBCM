@@ -7,6 +7,8 @@
 #     -n FILE       board nvram .txt to copy into firmware/fullmac/ (e.g. -n ~/brcmfmac43602-pcie.txt)
 #     -o STEMS      embed only these firmware stems, comma separated (e.g. brcmfmac43602-pcie)
 #     -e DIR        copy the built kext to DIR (e.g. /Volumes/EFI/EFI/OC/Kexts)
+#     -s SDK        macOS SDK to build against (default: auto; Xcode 26 SDKs break MacKernelSDK, so an SDK <= 15.x is used,
+#                   downloaded to ~/.openbcm/sdk if no older one is installed)
 #     -h            help
 set -eu
 cd "$(dirname "$0")"
@@ -16,14 +18,16 @@ CONFIG=Release
 NVRAM=
 ONLY=
 EFI=
-while getopts "p:c:n:o:e:h" opt; do
+SDK=
+while getopts "p:c:n:o:e:s:h" opt; do
     case $opt in
         p) PLATFORM=$OPTARG ;;
         c) CONFIG=$OPTARG ;;
         n) NVRAM=$OPTARG ;;
         o) ONLY=$OPTARG ;;
         e) EFI=$OPTARG ;;
-        h|*) sed -n '2,12p' "$0"; exit 0 ;;
+        s) SDK=$OPTARG ;;
+        h|*) sed -n '2,15p' "$0"; exit 0 ;;
     esac
 done
 
@@ -49,6 +53,47 @@ if [ "$NTXT" -eq 0 ]; then
     echo "         python3 scripts/openbcm_probe.py nvram -o $FWDIR   (or pass -n FILE)"
 fi
 
+# ---- MacKernelSDK + SDK selection -------------------------------------------------------
+MKS_REF=3f750085caa17ec3a7880f11c11bf4f48cd6a164
+if [ ! -d MacKernelSDK/Headers ]; then
+    echo "== MacKernelSDK missing, cloning pinned $MKS_REF"
+    git clone -q https://github.com/acidanthera/MacKernelSDK.git MacKernelSDK
+    git -C MacKernelSDK checkout -q "$MKS_REF"
+fi
+
+find_old_sdk() {
+    for d in "$(xcode-select -p)/Platforms/MacOSX.platform/Developer/SDKs" /Library/Developer/CommandLineTools/SDKs "$HOME/.openbcm/sdk"; do
+        for f in $(ls -d "$d"/MacOSX1[1-5]*.sdk 2>/dev/null | sort -rV); do
+            case "$f" in *MacOSX.sdk) continue ;; esac
+            echo "$f"; return 0
+        done
+    done
+    return 1
+}
+if [ -z "$SDK" ]; then
+    CUR=$(xcrun --show-sdk-version 2>/dev/null | cut -d. -f1)
+    if [ -n "$CUR" ] && [ "$CUR" -gt 15 ]; then
+        echo "== Xcode SDK is $CUR.x: MacKernelSDK headers conflict with it (ffsll/fls/vm_offset_t errors)"
+        SDK=$(find_old_sdk || true)
+        if [ -z "$SDK" ]; then
+            URL=https://github.com/joseluisq/macosx-sdks/releases/download/15.0/MacOSX15.0.sdk.tar.xz
+            echo "== no SDK <= 15 installed; downloading MacOSX15.0.sdk (~60 MB) from $URL"
+            mkdir -p "$HOME/.openbcm/sdk"
+            curl -fL --progress-bar "$URL" -o "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz" || die "SDK download failed; pass -s /path/to/MacOSX15.x.sdk"
+            tar -xJf "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz" -C "$HOME/.openbcm/sdk" || die "SDK unpack failed"
+            rm -f "$HOME/.openbcm/sdk/MacOSX15.0.sdk.tar.xz"
+            SDK=$(find_old_sdk || true)
+        fi
+        [ -n "$SDK" ] || die "could not find an SDK <= 15; pass -s /path/to/MacOSX15.x.sdk"
+    fi
+fi
+SDKARG=
+if [ -n "$SDK" ]; then
+    [ -d "$SDK" ] || die "SDK not found: $SDK"
+    echo "== using SDK: $SDK"
+    SDKARG="SDKROOT=$SDK"
+fi
+
 echo "== embedding firmware"
 if [ -n "$ONLY" ]; then
     python3 scripts/gen_fullmac_arrays.py --only "$ONLY"
@@ -65,7 +110,7 @@ else
     SEL="-target AirportItlwm-$PLATFORM"
 fi
 # shellcheck disable=SC2086
-if ! xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 \
+if ! xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 $SDKARG \
         SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
         CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" \
         build > "$LOG" 2>&1; then
