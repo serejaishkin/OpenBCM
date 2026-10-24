@@ -24,7 +24,10 @@ All three use the AppleCore `_wlc_ol_up` loader (BCDC/olmsg control plane + host
   git clone --depth=1 https://github.com/acidanthera/MacKernelSDK.git MacKernelSDK
   ```
 
-Build:
+Quick build (embeds firmware, builds, zips): `./build.sh -p Sequoia -n ~/brcmfmac43602-pcie.txt -o brcmfmac43602-pcie`
+(`./build.sh -h` for all options, `-e /Volumes/EFI/EFI/OC/Kexts` copies the kext into your EFI).
+
+Manual build:
 ```sh
 git clone https://github.com/serejaishkin/OpenBCM.git
 cd OpenBCM
