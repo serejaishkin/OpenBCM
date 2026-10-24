@@ -37,4 +37,6 @@ assert p.kv(sc[0])["boardtype"] == "0x145"
 good = "bcm: chip 0x aa52 mode=fullmac\nOpenBCM fullmac: BAR0 1 bytes\nfullmac firmware auto-selected: x\n"
 d = p.diagnose(good + "OpenBCM fullmac: 5 cores (cc=1 cr4=1 pcie2=1 imem=1)\nOpenBCM fullmac: firmware start status 2 shared=0x0\nbcm: fullmac start failed at step 5\n")
 assert "[x] EROM scan ok" in d and "[ ] firmware booted" in d and "step 5" in d and "timeout" in d
+assert p.acpi_to_pciroot("IOACPIPlane:/_SB/PCI0@0/RP03@1c0002/ARPT@0") == "PciRoot(0x0)/Pci(0x1C,0x2)/Pci(0x0,0x0)"
+assert p.acpi_to_pciroot("") is None
 print("probe tests OK")

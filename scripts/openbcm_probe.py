@@ -62,6 +62,19 @@ def pci_devices(text=None):
         })
     return devs
 
+def acpi_to_pciroot(acpi):
+    """IOACPIPlane:/_SB/PCI0@0/RP03@1c0002/ARPT@0 -> PciRoot(0x0)/Pci(0x1C,0x2)/Pci(0x0,0x0)"""
+    segs = re.findall(r"/([A-Za-z0-9_]+)@([0-9a-fA-F]+)", acpi or "")
+    if len(segs) < 2: return None
+    out = ["PciRoot(0x%X)" % int(segs[0][1], 16)]
+    for _, v in segs[1:]:
+        n = int(v, 16)
+        out.append("Pci(0x%X,0x%X)" % (n >> 16, n & 0xffff))
+    return "/".join(out)
+
+FW_STEM = {0x43ba: "brcmfmac43602-pcie", 0x43a3: "brcmfmac4350-pcie (or 4350c2)", 0x4356: "brcmfmac4356-pcie",
+           0x4358: "brcmfmac4358-pcie", 0x43a0: None}
+
 def cmd_info():
     devs = pci_devices()
     if not devs:
@@ -74,9 +87,13 @@ def cmd_info():
             "%04x" % d["subsystem"] if d["subsystem"] is not None else "?",
             "%02x" % d["rev"] if d["rev"] is not None else "?", d["name"]))
         print("  ACPI path:", d["acpi"] or "(not exposed) — run `gfxutil -f %s` for the PciRoot(...) path" % d["name"].split("@")[0])
-    print("\nOpenCore DeviceProperties (use the PciRoot path above), all String type:")
-    print("  openbcm-mode  = fullmac")
-    print("  openbcm-fw    = e.g. brcmfmac43602-pcie")
+        pr = acpi_to_pciroot(d["acpi"])
+        if pr: print("  OpenCore path:", pr)
+        if d["device"] == 0x43a0:
+            print("  note: BCM4360 has no Linux FullMAC firmware; softmac only (openbcm-mode = softmac)")
+        elif d["device"] in FW_STEM:
+            print("  DeviceProperties for this card (String): openbcm-mode = fullmac, openbcm-fw = %s" % FW_STEM[d["device"]])
+    print("\nAll DeviceProperties are optional (auto-selected by chip/rev); all are String type.")
     return devs
 
 # ---------------------------------------------------------------- log
@@ -113,9 +130,17 @@ def diagnose(text):
 
 def cmd_log(outfile):
     loaded = run(["kmutil", "showloaded", "--list-only"]) or run(["kextstat"])
-    hits = [l for l in loaded.splitlines() if re.search(r"openbcm|itlwm|airportitlwm", l, re.I)]
-    print("Kext loaded:", "YES" if hits else "NO")
+    hits = [l for l in loaded.splitlines() if re.search(r"serejaishkin|openbcm", l, re.I)]
+    stock = [l for l in loaded.splitlines() if re.search(r"zxystd|itlwm", l, re.I) and l not in hits]
+    print("OpenBCM kext loaded:", "YES" if hits else "NO")
     for l in hits: print("  " + l.strip())
+    if stock:
+        print("Stock itlwm/AirportItlwm kext(s) loaded (NOT OpenBCM):")
+        for l in stock: print("  " + l.strip())
+        if not hits:
+            print("  -> you are running upstream itlwm, which has no Broadcom support. Build the\n"
+                  "     AirportItlwm-<your macOS> target (bundle id com.serejaishkin.OpenBCM), put it in\n"
+                  "     EFI/OC/Kexts, list it in config.plist Kernel->Add and remove/disable the stock itlwm.")
     log = run(["log", "show", "--last", "boot", "--style", "compact", "--predicate",
                'eventMessage CONTAINS[c] "bcm" OR eventMessage CONTAINS[c] "OpenBCM"'], 120)
     if not log:
