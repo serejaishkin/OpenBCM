@@ -87,11 +87,10 @@ if [ -z "$SDK" ]; then
         [ -n "$SDK" ] || die "could not find an SDK <= 15; pass -s /path/to/MacOSX15.x.sdk"
     fi
 fi
-SDKARG=
 if [ -n "$SDK" ]; then
     [ -d "$SDK" ] || die "SDK not found: $SDK"
-    echo "== using SDK: $SDK"
-    SDKARG="SDKROOT=$SDK"
+    case "$SDK" in *" "*) die "SDK path must not contain spaces: $SDK" ;; esac
+    echo "== compiling against SDK headers: $SDK"
 fi
 
 echo "== embedding firmware"
@@ -109,11 +108,24 @@ if [ -f "itlwm.xcodeproj/xcshareddata/xcschemes/AirportItlwm-$PLATFORM.xcscheme"
 else
     SEL="-target AirportItlwm-$PLATFORM"
 fi
-# shellcheck disable=SC2086
-if ! xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 $SDKARG \
-        SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
-        CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" \
-        build > "$LOG" 2>&1; then
+# The older SDK is only used for the compiler's headers (-isysroot, last flag wins). Xcode's own
+# SDK (macosx26) stays selected for the build system: SDKROOT=<path to a Command Line Tools SDK>
+# makes Xcode fail on Info.plist processing ("SDK lookup failed for canonical name").
+run_xcodebuild() {
+    if [ -n "$SDK" ]; then
+        # shellcheck disable=SC2086
+        xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 \
+            "OTHER_CFLAGS=\$(inherited) -isysroot $SDK" "OTHER_CPLUSPLUSFLAGS=\$(inherited) -isysroot $SDK" \
+            SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
+            CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
+    else
+        # shellcheck disable=SC2086
+        xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 \
+            SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
+            CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
+    fi
+}
+if ! run_xcodebuild > "$LOG" 2>&1; then
     tail -60 "$LOG"
     die "build failed, full log: $LOG"
 fi
