@@ -37,3 +37,16 @@ d = "void Debugger(const char * reason);"
 if d in s and "OPENBCM-PATCH" not in s:
     s = s.replace(d, "/* OPENBCM-PATCH: declared by MacTypes.h */ // " + d)
     open(p, "w").write(s); print("patched", p)
+
+def insert_after(rel, anchor, text):
+    p = os.path.join(base, rel)
+    s = open(p).read()
+    if "OPENBCM-PATCH" in s or anchor not in s:
+        return
+    open(p, "w").write(s.replace(anchor, anchor + text, 1)); print("patched", p)
+
+# types that the macOS 26 userland headers no longer provide to kernel-style code
+insert_after("Headers/IOKit/IOMemoryDescriptor.h", "#include <IOKit/IOTypes.h>\n",
+             "struct upl_page_info; typedef struct upl_page_info upl_page_info_t; /* OPENBCM-PATCH */\n")
+insert_after("Headers/sys/systm.h", "#include <sys/cdefs.h>\n",
+             "struct mount; typedef struct mount *mount_t; /* OPENBCM-PATCH */\n")
