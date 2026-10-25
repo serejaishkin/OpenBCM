@@ -131,7 +131,7 @@ run_xcodebuild() {
 }
 rm -f build/wrapper.log
 if ! run_xcodebuild > "$LOG" 2>&1; then
-    [ -f build/wrapper.log ] && { echo "--- build/wrapper.log (head) ---"; head -c 3000 build/wrapper.log; } 
+    [ -f build/wrapper.log ] && { echo "--- build/wrapper.log (head) ---"; grep -A60 FAILED build/wrapper.log | head -c 8000; } 
     tail -60 "$LOG"
     die "build failed, full log: $LOG"
 fi

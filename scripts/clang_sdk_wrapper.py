@@ -48,4 +48,19 @@ try:
             len(final), len(left), os.getcwd(), " ".join(args)[:600], " ".join(final)[:600]))
 except Exception:
     pass
-os.execv(real, final)
+import subprocess
+logp = os.environ.get("OPENBCM_WRAPPER_LOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "wrapper.log"))
+r = subprocess.run(final, stdin=subprocess.DEVNULL)
+if r.returncode != 0:
+    try:
+        v = subprocess.run(final + ["-v"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.PIPE, universal_newlines=True, errors="replace")
+        keep = [l for l in v.stderr.splitlines()
+                if l.startswith(" /") or "search starts" in l or "End of search" in l
+                or l.lstrip().startswith('"') or "sysroot" in l]
+        with open(logp, "a") as lf:
+            lf.write("FAILED rc=%d\n  FULL ARGV: %s\n  -v:\n%s\n" % (r.returncode, " ".join(final), "\n".join(k[:3000] for k in keep)))
+    except Exception as e:
+        with open(logp, "a") as lf:
+            lf.write("FAILED rc=%d (diag error %r)\n" % (r.returncode, e))
+sys.exit(r.returncode)
