@@ -61,11 +61,48 @@ if [ ! -d MacKernelSDK/Headers ]; then
     git -C MacKernelSDK checkout -q "$MKS_REF"
 fi
 
-python3 scripts/patch_mackernelsdk.py MacKernelSDK   # headers vs. macOS 26 SDK (idempotent)
+find_old_sdk() {
+    for d in "$(xcode-select -p)/Platforms/MacOSX.platform/Developer/SDKs" /Library/Developer/CommandLineTools/SDKs "$HOME/.openbcm/sdk"; do
+        for f in $(ls -d "$d"/MacOSX1[1-5]*.sdk 2>/dev/null | sort -rV); do
+            case "$f" in *MacOSX.sdk) continue ;; esac
+            echo "$f"; return 0
+        done
+    done
+    return 1
+}
+if [ -z "$SDK" ]; then
+    CUR=$(xcrun --show-sdk-version 2>/dev/null | cut -d. -f1)
+    if [ -n "$CUR" ] && [ "$CUR" -gt 15 ]; then
+        echo "== Xcode SDK is $CUR.x: MacKernelSDK is written for SDK <= 15 (kernel APIs missing in 26 headers)"
+        SDK=$(find_old_sdk || true)
+        if [ -z "$SDK" ]; then
+            URL=https://github.com/joseluisq/macosx-sdks/releases/download/15.0/MacOSX15.0.sdk.tar.xz
+            echo "== no SDK <= 15 installed; downloading MacOSX15.0.sdk (~60 MB)"
+            mkdir -p "$HOME/.openbcm/sdk"
+            curl -fL --progress-bar "$URL" -o "$HOME/.openbcm/sdk/sdk.tar.xz" || die "SDK download failed; pass -s /path/to/MacOSX15.x.sdk"
+            tar -xJf "$HOME/.openbcm/sdk/sdk.tar.xz" -C "$HOME/.openbcm/sdk" || die "SDK unpack failed"
+            rm -f "$HOME/.openbcm/sdk/sdk.tar.xz"
+            SDK=$(find_old_sdk || true)
+        fi
+        [ -n "$SDK" ] || die "no SDK <= 15 found; pass -s /path/to/MacOSX15.x.sdk"
+    fi
+fi
+CCARGS=
 if [ -n "$SDK" ]; then
     [ -d "$SDK" ] || die "SDK not found: $SDK"
-    case "$SDK" in *" "*) die "SDK path must not contain spaces: $SDK" ;; esac
     echo "== compiling against SDK headers: $SDK"
+    # Pristine headers: the 26-SDK patch must not be applied when an older SDK is used.
+    git -C MacKernelSDK checkout -q -- . 2>/dev/null || true
+    # Xcode 26 cannot resolve a Command Line Tools SDK as SDKROOT (Info.plist task fails), so only
+    # the compiler is redirected: a clang wrapper appends -isysroot (last one wins).
+    mkdir -p build
+    REALCLANG=$(xcrun -f clang)
+    WRAP="$PWD/build/clang-sdk-wrapper.sh"
+    printf '#!/bin/sh\nexec "%s" "$@" -isysroot "%s"\n' "$REALCLANG" "$SDK" > "$WRAP"
+    chmod +x "$WRAP"
+    CCARGS="CC=$WRAP CPLUSPLUS=$WRAP"
+else
+    python3 scripts/patch_mackernelsdk.py MacKernelSDK   # best effort for new SDKs (incomplete)
 fi
 
 echo "== embedding firmware"
@@ -83,22 +120,11 @@ if [ -f "itlwm.xcodeproj/xcshareddata/xcschemes/AirportItlwm-$PLATFORM.xcscheme"
 else
     SEL="-target AirportItlwm-$PLATFORM"
 fi
-# The older SDK is only used for the compiler's headers (-isysroot, last flag wins). Xcode's own
-# SDK (macosx26) stays selected for the build system: SDKROOT=<path to a Command Line Tools SDK>
-# makes Xcode fail on Info.plist processing ("SDK lookup failed for canonical name").
 run_xcodebuild() {
-    if [ -n "$SDK" ]; then
-        # shellcheck disable=SC2086
-        xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 \
-            "OTHER_CFLAGS=\$(inherited) -isysroot $SDK" "OTHER_CPLUSPLUSFLAGS=\$(inherited) -isysroot $SDK" \
-            SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
-            CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
-    else
-        # shellcheck disable=SC2086
-        xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 \
-            SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
-            CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
-    fi
+    # shellcheck disable=SC2086
+    xcodebuild -project itlwm.xcodeproj $SEL -configuration "$CONFIG" -jobs 3 ARCHS=x86_64 $CCARGS \
+        SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
+        CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
 }
 if ! run_xcodebuild > "$LOG" 2>&1; then
     tail -60 "$LOG"
