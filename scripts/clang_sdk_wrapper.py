@@ -10,7 +10,7 @@ real, old, news = sys.argv[1], sys.argv[2], [n for n in sys.argv[3].split(":") i
 args = sys.argv[5:] if len(sys.argv) > 4 and sys.argv[4] == "--" else sys.argv[4:]
 
 import re
-SDK_RE = re.compile(r'[^\s"\']*/Platforms/MacOSX\.platform/Developer/SDKs/MacOSX[0-9.]*\.sdk')
+SDK_RE = re.compile(r'/(?:[^\s"\'/]+/)*?Platforms/MacOSX\.platform/Developer/SDKs/MacOSX[0-9.]*\.sdk')
 
 def fix(text):
     text = SDK_RE.sub(lambda m: old, text)   # any Xcode macOS SDK spelling (MacOSX.sdk, MacOSX26.sdk, MacOSX26.2.sdk)
