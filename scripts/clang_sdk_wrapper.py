@@ -44,6 +44,15 @@ for a in args:
         out.append("@" + dst)
         continue
     out.append(fix(a))
+# Header order: MacKernelSDK's kernel headers (libkern/OSAtomic.h, string.h conflicts, ...) must win over the
+# userland SDK headers. The project lists the SDK dirs first, so move them behind MacKernelSDK/Headers.
+sdk_dirs = ["-I" + old, "-I" + old + "/usr/include"]
+moved = [a for a in out if a in sdk_dirs]
+if moved:
+    out = [a for a in out if a not in sdk_dirs]
+    idx = [i for i, a in enumerate(out) if a.startswith("-I") and a.rstrip("/").endswith("MacKernelSDK/Headers")]
+    at = idx[0] + 1 if idx else len(out)
+    out[at:at] = moved
 final = [real] + out + ["-isysroot", old]
 try:
     with open(os.environ.get("OPENBCM_WRAPPER_LOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "wrapper.log")), "a") as lf:
