@@ -6,7 +6,7 @@ usage: gen_fullmac_arrays.py [--if-changed] [--only stem[,stem...]] [dir] [out.c
   --only   embed just these stems (keeps the kext small); e.g. --only brcmfmac43602-pcie
 Selection at runtime: auto by chip/rev, or OpenCore DeviceProperties
 openbcm-fw / openbcm-nvram (stem names). See docs/FULLMAC_PLAN.md."""
-import sys, os, glob
+import re, sys, os, glob
 args = sys.argv[1:]
 only = None
 if_changed = False
@@ -43,7 +43,11 @@ def collect(ext):
     for p in sorted(glob.glob(os.path.join(d, "*." + ext))):
         stem = os.path.basename(p)[:-(len(ext) + 1)]
         if only is None or stem in only:
-            items.append((stem, open(p, "rb").read()))
+            data = open(p, "rb").read()
+            if ext == "txt":
+                # Linux-style placeholder (xx:xx:..) is not a valid MAC; the real one is set by the driver later.
+                data = re.sub(rb"(?m)^macaddr=[xX0-9a-fA-F:]*xx[xX0-9a-fA-F:]*", b"macaddr=00:90:4c:c5:12:38", data)
+            items.append((stem, data))
     return items
 
 def arr(name, data):
