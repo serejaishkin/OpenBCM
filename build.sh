@@ -103,7 +103,7 @@ if [ -n "$SDK" ]; then
     printf '#!/bin/sh\nexec python3 "%s" "%s" "%s" "%s:%s" -- "$@"\n' \
         "$PWD/scripts/clang_sdk_wrapper.py" "$REALCLANG" "$SDK" "$NEWSDK_REAL" "$NEWSDK" > "$WRAP"
     chmod +x "$WRAP"
-    CCARGS="CC=$WRAP CPLUSPLUS=$WRAP"
+    CCARGS="CC=$WRAP CPLUSPLUS=$WRAP CLANG_ENABLE_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO"
 else
     python3 scripts/patch_mackernelsdk.py MacKernelSDK   # best effort for new SDKs (incomplete)
 fi
