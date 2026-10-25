@@ -129,7 +129,9 @@ run_xcodebuild() {
         SYMROOT="$PWD/build/products" OBJROOT="$PWD/build/obj" \
         CODE_SIGNING_ALLOWED=NO GIT_COMMIT="_$(git rev-parse --short HEAD 2>/dev/null || echo local)" build
 }
+rm -f build/wrapper.log
 if ! run_xcodebuild > "$LOG" 2>&1; then
+    [ -f build/wrapper.log ] && { echo "--- build/wrapper.log (head) ---"; head -c 3000 build/wrapper.log; } 
     tail -60 "$LOG"
     die "build failed, full log: $LOG"
 fi

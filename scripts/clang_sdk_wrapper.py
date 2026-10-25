@@ -40,4 +40,12 @@ for a in args:
         out.append("@" + dst)
         continue
     out.append(fix(a))
-os.execv(real, [real] + out + ["-isysroot", old])
+final = [real] + out + ["-isysroot", old]
+try:
+    with open(os.environ.get("OPENBCM_WRAPPER_LOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "wrapper.log")), "a") as lf:
+        left = [x for x in final if any(n in x for n in news)]
+        lf.write("CALL %d args, %d still mention new SDK, cwd=%s\n  in : %s\n  out: %s\n" % (
+            len(final), len(left), os.getcwd(), " ".join(args)[:600], " ".join(final)[:600]))
+except Exception:
+    pass
+os.execv(real, final)
