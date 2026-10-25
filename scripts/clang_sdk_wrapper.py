@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""clang wrapper: redirect every reference to Xcode's (new) SDK onto an older SDK.
+
+usage (via build.sh): clang_sdk_wrapper.py REAL_CLANG OLD_SDK NEW_SDK[:NEW_SDK2...] -- clang args...
+Rewrites plain arguments and @response files, drops -ivfsstatcache (stat cache of the new SDK).
+"""
+import os, sys
+
+real, old, news = sys.argv[1], sys.argv[2], [n for n in sys.argv[3].split(":") if n]
+args = sys.argv[5:] if len(sys.argv) > 4 and sys.argv[4] == "--" else sys.argv[4:]
+
+def fix(text):
+    for n in news:
+        text = text.replace(n, old)
+    return text
+
+out, skip = [], False
+for a in args:
+    if skip:
+        skip = False
+        continue
+    if a == "-ivfsstatcache":
+        skip = True
+        continue
+    if a.startswith("@") and os.path.isfile(a[1:]):
+        src = a[1:]
+        with open(src, errors="surrogateescape") as f:
+            body = fix(f.read())
+        # drop -ivfsstatcache <path> inside response files too
+        lines = body.split("\n")
+        keep, i = [], 0
+        while i < len(lines):
+            if lines[i].strip() == "-ivfsstatcache":
+                i += 2
+                continue
+            keep.append(lines[i]); i += 1
+        dst = src + ".oldsdk"
+        with open(dst, "w", errors="surrogateescape") as f:
+            f.write("\n".join(keep))
+        out.append("@" + dst)
+        continue
+    out.append(fix(a))
+os.execv(real, [real] + out + ["-isysroot", old])

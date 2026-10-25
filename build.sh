@@ -94,11 +94,14 @@ if [ -n "$SDK" ]; then
     # Pristine headers: the 26-SDK patch must not be applied when an older SDK is used.
     git -C MacKernelSDK checkout -q -- . 2>/dev/null || true
     # Xcode 26 cannot resolve a Command Line Tools SDK as SDKROOT (Info.plist task fails), so only
-    # the compiler is redirected: a clang wrapper appends -isysroot (last one wins).
+    # the compiler is redirected: the wrapper rewrites all references to Xcode's SDK onto the old one.
     mkdir -p build
     REALCLANG=$(xcrun -f clang)
+    NEWSDK=$(xcrun --show-sdk-path 2>/dev/null)
+    NEWSDK_REAL=$(cd "$NEWSDK" 2>/dev/null && pwd -P)
     WRAP="$PWD/build/clang-sdk-wrapper.sh"
-    printf '#!/bin/sh\nexec "%s" "$@" -isysroot "%s"\n' "$REALCLANG" "$SDK" > "$WRAP"
+    printf '#!/bin/sh\nexec python3 "%s" "%s" "%s" "%s:%s" -- "$@"\n' \
+        "$PWD/scripts/clang_sdk_wrapper.py" "$REALCLANG" "$SDK" "$NEWSDK_REAL" "$NEWSDK" > "$WRAP"
     chmod +x "$WRAP"
     CCARGS="CC=$WRAP CPLUSPLUS=$WRAP"
 else
