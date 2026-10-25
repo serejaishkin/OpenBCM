@@ -20,3 +20,20 @@ if "mach/vm_types.h" not in s:
 if s != orig:
     open(p, "w").write(s)
     print("patched", p)
+
+# ---- IOKit/IOLocks.h: __DARWIN14_ALIAS no longer defined by the SDK ----
+base = sys.argv[1] if len(sys.argv) > 1 else "MacKernelSDK"
+p = os.path.join(base, "Headers/IOKit/IOLocks.h")
+s = open(p).read()
+if "OPENBCM-PATCH" not in s:
+    s = s.replace("#include <IOKit/IOTypes.h>\n",
+                  "#include <IOKit/IOTypes.h>\n#ifndef __DARWIN14_ALIAS\n#define __DARWIN14_ALIAS(x) /* OPENBCM-PATCH */\n#endif\n", 1)
+    open(p, "w").write(s); print("patched", p)
+
+# ---- IOKit/IOLib.h: Debugger() now declared (differently) by MacTypes.h ----
+p = os.path.join(base, "Headers/IOKit/IOLib.h")
+s = open(p).read()
+d = "void Debugger(const char * reason);"
+if d in s and "OPENBCM-PATCH" not in s:
+    s = s.replace(d, "/* OPENBCM-PATCH: declared by MacTypes.h */ // " + d)
+    open(p, "w").write(s); print("patched", p)
