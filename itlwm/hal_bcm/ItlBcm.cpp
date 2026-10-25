@@ -36,7 +36,6 @@
 #include "Chanspec.hpp"
 
 #include <string.h>
-#include <cstdio>
 
 #define super ItlHalService
 OSDefineMetaClassAndStructors(ItlBcm, ItlHalService)
