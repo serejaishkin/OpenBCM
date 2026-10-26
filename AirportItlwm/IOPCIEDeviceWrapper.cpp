@@ -93,7 +93,7 @@ probe(IOService *provider, SInt32 *score)
         OSString *fwFile = OSDynamicCast(OSString, device->getProperty("FirmwareFile"));
         if (fwFile) {
             char buf[64] = {0};
-            fwFile->getCString(buf, sizeof(buf));
+            strlcpy(buf, fwFile->getCStringNoCopy(), sizeof(buf));
             strncpy(devCfg.firmwareResourceName, buf, sizeof(devCfg.firmwareResourceName) - 1);
         }
         OSNumber *chipNum = OSDynamicCast(OSNumber, device->getProperty("ChipNumber"));
@@ -103,7 +103,7 @@ probe(IOService *provider, SInt32 *score)
         OSString *chipType = OSDynamicCast(OSString, device->getProperty("ChipType"));
         if (chipType) {
             char buf[32] = {0};
-            chipType->getCString(buf, sizeof(buf));
+            strlcpy(buf, chipType->getCStringNoCopy(), sizeof(buf));
             if (strcmp(buf, "fullmac") == 0)
                 devCfg.chipType = ChipType::kFullmac;
             else
@@ -113,7 +113,7 @@ probe(IOService *provider, SInt32 *score)
         OSString *fwSource = OSDynamicCast(OSString, device->getProperty("FirmwareSource"));
         if (fwSource) {
             char buf[32] = {0};
-            fwSource->getCString(buf, sizeof(buf));
+            strlcpy(buf, fwSource->getCStringNoCopy(), sizeof(buf));
             if (strcmp(buf, "bundle") == 0)
                 devCfg.fwSource = FirmwareSource::kBundle;
             else if (strcmp(buf, "filesystem") == 0)

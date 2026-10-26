@@ -37,6 +37,10 @@
 
 #include <string.h>
 
+#ifndef M_DEVBUF
+#define M_DEVBUF 2
+#endif
+
 #define super ItlHalService
 OSDefineMetaClassAndStructors(ItlBcm, ItlHalService)
 
@@ -148,7 +152,7 @@ bcm_set_key(struct ieee80211com *ic, struct ieee80211_node *ni, struct ieee80211
     struct bcm_softc *sc = (struct bcm_softc *)ic->ic_if.if_softc;
     if (!sc || !sc->sc_driver) return -1;
     XYLog("%s: key alg=%d len=%d flags=0x%x\n", __FUNCTION__,
-          k->ik_flags, k->ik_len, k->ik_flags);
+          k->k_flags, k->k_len, k->k_flags);
     return 0;
 }
 
@@ -157,7 +161,7 @@ bcm_delete_key(struct ieee80211com *ic, struct ieee80211_node *ni, struct ieee80
 {
     // Remove the key from the device key table.
     if (!ic || !ni || !k) return;
-    XYLog("%s: key alg=%d\n", __FUNCTION__, k->ik_flags);
+    XYLog("%s: key alg=%d\n", __FUNCTION__, k->k_flags);
 }
 
 static void
@@ -211,7 +215,7 @@ init80211()
     ieee80211_media_init(ifp);
 
     ic->ic_node_alloc = bcm_node_alloc;
-    ic->ic_bgscan_start = bcm_bgscan_start;
+    ic->ic_bgscan_start = ::bcm_bgscan_start;
     ic->ic_set_key = bcm_set_key;
     ic->ic_delete_key = bcm_delete_key;
     com.sc_newstate = ic->ic_newstate;
@@ -255,9 +259,9 @@ bcm_rx_input(mbuf_t m, int rssi, uint8_t chan)
 void ItlBcm::
 bcm_tx_start(struct _ifnet *ifp)
 {
-    struct mbuf *m;
+    mbuf_t m;
     while ((m = ifq_dequeue(&ifp->if_snd)) != nullptr) {
-        uint32_t len = mbuf_pkthdr_len(m);
+        uint32_t len = (uint32_t)mbuf_pkthdr_len(m);
         bool sent = false;
         if (isFullmac()) {
             // if_snd carries 802.3 frames; the firmware does the 802.11 encap.
@@ -269,7 +273,7 @@ bcm_tx_start(struct _ifnet *ifp)
                 sent = mFm->transmit(0, frame, (uint16_t)len, prio);
             }
             mbuf_freem(m);
-            if (sent) ifp->if_opackets++; else ifp->if_oerrors++;
+            if (sent) ifp->netStat->outputPackets++; else ifp->netStat->outputErrors++;
             continue;
         }
         // Bounce through a stack buffer (max 802.11 frame) into the DMA ring.
@@ -282,9 +286,9 @@ bcm_tx_start(struct _ifnet *ifp)
         }
         mbuf_freem(m);
         if (sent)
-            ifp->if_opackets++;
+            ifp->netStat->outputPackets++;
         else
-            ifp->if_oerrors++;
+            ifp->netStat->outputErrors++;
     }
 }
 
@@ -465,7 +469,7 @@ bcm_wlc_poll_d2h()
 }
 
 void ItlBcm::
-s_wlc_d2h_sink(void *ctx, const OlControlMessage *msg)
+s_wlc_d2h_sink(const OlControlMessage *msg, void *ctx)
 {
     ItlBcm *self = static_cast<ItlBcm *>(ctx);
     if (self)
@@ -1286,7 +1290,7 @@ releaseAll()
         mRxPollTimer = nullptr;
     }
     if (mScanTimer) {
-        mScanTimer->timeout();
+        mScanTimer->cancelTimeout();
         mScanTimer->release();
         mScanTimer = nullptr;
     }

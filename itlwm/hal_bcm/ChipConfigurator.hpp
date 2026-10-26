@@ -85,6 +85,7 @@ public:
 
     // Probed values (mirrors of BCMC's Configurator fields).
     UInt32 getChipId() const { return mChipId; }
+    UInt8 *getMacAddress();
     UInt32 getChipRevision() const { return mChipRev; }
     UInt32 getInterconnectType() const { return mInterconnect; }
     UInt32 getCoreCount() const { return mCoreCount; }

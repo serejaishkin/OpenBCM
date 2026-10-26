@@ -213,7 +213,7 @@ private:
     // escan results and other firmware events.
     IOTimerEventSource *mWlcPollTimer {nullptr};
     static void s_wlc_poll_timer(OSObject *target, IOTimerEventSource *sender);
-    static void s_wlc_d2h_sink(void *ctx, const OlControlMessage *msg);
+    static void s_wlc_d2h_sink(const OlControlMessage *msg, void *ctx);
 
     // D11 RX poll timer (50 ms): keeps data/mgmt flowing in RUN state.
     IOTimerEventSource *mRxPollTimer {nullptr};

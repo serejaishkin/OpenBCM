@@ -53,7 +53,7 @@ if moved:
     idx = [i for i, a in enumerate(out) if a.startswith("-I") and a.rstrip("/").endswith("MacKernelSDK/Headers")]
     at = idx[0] + 1 if idx else len(out)
     out[at:at] = moved
-final = [real] + out + ["-isysroot", old]
+final = [real] + out + ["-isysroot", old, "-ferror-limit=0"]
 try:
     with open(os.environ.get("OPENBCM_WRAPPER_LOG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "wrapper.log")), "a") as lf:
         left = [x for x in final if SDK_RE.search(x.replace(old, ''))]
