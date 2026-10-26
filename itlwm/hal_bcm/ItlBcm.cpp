@@ -34,6 +34,7 @@
 #include "WlcDefs.hpp"
 #include "WlcCodec.hpp"
 #include "Chanspec.hpp"
+#include "D11Phy.hpp"
 
 #include <string.h>
 
@@ -1343,7 +1344,7 @@ enable(IONetworkInterface *netif)
     // softmac: start the D11 data path: RX ring (receive beacons/data) + TX
     // ring (probe requests/data frames).
     uint32_t d11CoreBase = cfg.getD11CoreBase() ? cfg.getD11CoreBase() : 0;
-    uint32_t phyBase = d11CoreBase + D11::kD11PhyBaseOffset;
+    uint32_t phyBase = d11CoreBase + bcm::d11::kD11PhyBaseOffset;
 
     mRxRing = new Dma64RxRing(&cfg, phyBase, 0, 64, 2048);
     if (!mRxRing->init()) {
